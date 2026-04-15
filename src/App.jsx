@@ -33,9 +33,17 @@ const weightToPercent = (weight_g, preset, customTare_g = null) => {
 }
 
 // ─── MQ6 thresholds ────────────────────────────────────────────────────────
-const LPG_PPM_THRESHOLD = 300
-const filterPpm = (ppm) => (ppm != null && ppm >= LPG_PPM_THRESHOLD ? ppm : null)
-const filterSeverity = (sev, ppm) => (ppm != null && ppm >= LPG_PPM_THRESHOLD ? sev : 'safe')
+// These match PPM_SAFE_LIMIT and PPM_LOW_LIMIT in the ESP32 firmware.
+const LPG_PPM_LOW  = 200   // matches PPM_SAFE_LIMIT in firmware
+const LPG_PPM_HIGH = 1000  // matches PPM_LOW_LIMIT  in firmware
+
+// Always derive severity from ppm — never trust the ESP32 severity field alone.
+const deriveSeverity = (ppm) => {
+  if (ppm == null || ppm < LPG_PPM_LOW) return 'safe'
+  if (ppm >= LPG_PPM_HIGH) return 'high'
+  return 'low'
+}
+const filterPpm = (ppm) => (ppm != null && ppm >= LPG_PPM_LOW ? Number(ppm) : null)
 
 // ─── Safety recommendations ────────────────────────────────────────────────
 const getRecommendations = (severity, level, ppm) => {
@@ -650,16 +658,16 @@ export default function App() {
     } catch (_) {}
   }, [])
 
-  const handleLeakEvent = useCallback((sev, id, ts, rawPpm, raw) => {
+  const handleLeakEvent = useCallback((sev, id, ts, rawPpm, rawAdc) => {
     const fPpm = filterPpm(rawPpm)
-    const fSev = filterSeverity(sev, rawPpm)
+    const fSev = deriveSeverity(rawPpm)  // always re-derive — don't trust firmware severity field
     setSeverity(fSev); setLastSeen(new Date(ts || Date.now()))
     setCurrentPpm(fPpm)
     if (fPpm != null) setPpmHistory(h => [...h.slice(-59), fPpm])
-    if (raw != null) setCurrentRaw(raw)
+    if (rawAdc != null) setCurrentRaw(rawAdc)
     if (cookingRef.current) { setAlarmBanner(false); clearInterval(alarmTimer.current); return }
     if (fSev !== 'safe') {
-      const a = { id: id || Date.now(), severity: fSev, time: fmtTime(ts || Date.now()), date: fmtDate(ts || Date.now()), msg: fSev === 'high' ? 'CRITICAL gas leakage detected!' : 'Minor gas leakage detected', ppm: fPpm, raw }
+      const a = { id: id || Date.now(), severity: fSev, time: fmtTime(ts || Date.now()), date: fmtDate(ts || Date.now()), msg: fSev === 'high' ? 'CRITICAL gas leakage detected!' : 'Minor gas leakage detected', ppm: fPpm, raw: rawAdc }
       setAlerts(prev => [a, ...prev.slice(0, 99)])
       if (fSev === 'high') {
         setTotalLeaks(t => t + 1); setAlarmBanner(true); playAlarm()
@@ -690,13 +698,14 @@ export default function App() {
       const iv = setInterval(() => {
         setRawWeightG(prev => {
           const nw = genDemoWeight(prev)
-          const pr = CYLINDER_PRESETS.find(p => p.id === (localStorage.getItem('gaswatch_cylinder') || DEFAULT_CYLINDER)) || CYLINDER_PRESETS[1]
+          const pr = cylinderPresetRef.current
+          const ct = customTareRef.current
           // FIX: Update history directly here to avoid async issues
-          setLevelHistory(h => [...h.slice(-59), weightToPercent(nw, pr)])
+          setLevelHistory(h => [...h.slice(-59), weightToPercent(nw, pr, ct)])
           return nw
         })
         const i = demoIdx++ % demoSevs.length
-        const fPpm = filterPpm(demoPpm[i]); const fSev = filterSeverity(demoSevs[i], demoPpm[i])
+        const fPpm = filterPpm(demoPpm[i]); const fSev = deriveSeverity(demoPpm[i])
         setSeverity(fSev); setCurrentPpm(fPpm)
         if (fPpm != null) setPpmHistory(h => [...h.slice(-59), fPpm])
         setLastSeen(new Date())
@@ -719,7 +728,7 @@ export default function App() {
         .limit(60)
 
       if (lvls?.length > 0) {
-        const pr = CYLINDER_PRESETS.find(p => p.id === (localStorage.getItem('gaswatch_cylinder') || DEFAULT_CYLINDER)) || CYLINDER_PRESETS[1]
+        const pr = cylinderPresetRef.current
         const ct = customTareRef.current
         const latestWeight = Number(lvls[0].weight_grams)
         
@@ -739,14 +748,14 @@ export default function App() {
 
       if (leaks?.length > 0) {
         const l = leaks[0]
-        setSeverity(filterSeverity(l.severity, l.ppm_approx))
+        setSeverity(deriveSeverity(l.ppm_approx))
         setCurrentPpm(filterPpm(l.ppm_approx))
         if (l.raw_value != null) setCurrentRaw(l.raw_value)
         setPpmHistory(leaks.slice(0, 60).map(r => filterPpm(r.ppm_approx) ?? 0).reverse())
-        const filtered = leaks.filter(r => filterSeverity(r.severity, r.ppm_approx) !== 'safe')
+        const filtered = leaks.filter(r => deriveSeverity(r.ppm_approx) !== 'safe')
         setAlerts(filtered.map(r => ({
           id: r.id,
-          severity: filterSeverity(r.severity, r.ppm_approx),
+          severity: deriveSeverity(r.ppm_approx),
           time: fmtTime(r.created_at),
           date: fmtDate(r.created_at),
           msg: r.severity === 'high' ? 'CRITICAL gas leakage detected!' : 'Minor gas leakage detected',
@@ -765,7 +774,7 @@ export default function App() {
         .gte('created_at', sevenAgo)
 
       if (wLvls?.length > 0) {
-        const pr = CYLINDER_PRESETS.find(p => p.id === (localStorage.getItem('gaswatch_cylinder') || DEFAULT_CYLINDER)) || CYLINDER_PRESETS[1]
+        const pr = cylinderPresetRef.current
         const ct = customTareRef.current
         const sums = {}, cnts = {}
         DAYS.forEach(d => { sums[d] = 0; cnts[d] = 0 })
@@ -790,7 +799,7 @@ export default function App() {
         let sumP = 0, cntP = 0, maxP = 0, cH = 0, cL = 0
         wLeaks.forEach(r => {
           const d    = DAYS[new Date(r.created_at).getDay()]
-          const fSev = filterSeverity(r.severity, r.ppm_approx)
+          const fSev = deriveSeverity(r.ppm_approx)
           const fPpm = filterPpm(r.ppm_approx)
           if (fSev === 'high') { bySev[d].high++; cH++ }
           if (fSev === 'low')  { bySev[d].low++;  cL++ }
