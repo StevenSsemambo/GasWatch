@@ -1,0 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&family=Outfit:wght@600;700;800&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg:        #0a0e1a;
+  --surface:   #111827;
+  --surface2:  #0d1424;
+  --surface3:  #0a1020;
+  --border:    #1e2d45;
+  --border2:   #2a3d57;
+  --text-1:    #f0f4ff;
+  --text-2:    #8ba3bf;
+  --text-3:    #4a6280;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', monospace;
+  --font-disp: 'Outfit', sans-serif;
+  --r:         16px;
+  --r-sm:      10px;
+  --shadow:    0 1px 3px rgba(0,0,0,0.5), 0 4px 20px rgba(0,0,0,0.4);
+}
+
+html { 
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
+}
+
+html, body, #root { 
+  height: 100%;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Hide mobile nav by default, show on mobile */
+#mobile-nav {
+  display: none !important;
+}
+
+/* Desktop nav visible by default */
+#desktop-nav {
+  display: flex !important;
+}
+
+/* Mobile styles */
+@media (max-width: 640px) {
+  #desktop-nav {
+    display: none !important;
+  }
+  
+  #mobile-nav {
+    display: block !important;
+  }
+  
+  /* Add bottom padding to main content to account for fixed nav */
+  #main-content {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 8px)) !important;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: var(--border2); border-radius: 10px; }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Animations */
+@keyframes pulseGreen {
+  0%,100% { box-shadow: 0 0 6px rgba(0,229,160,0.35); }
+  50%      { box-shadow: 0 0 18px rgba(0,229,160,0.7); }
+}
+@keyframes pulseRed {
+  0%,100% { box-shadow: 0 0 6px rgba(255,69,96,0.35); }
+  50%      { box-shadow: 0 0 20px rgba(255,69,96,0.85); }
+}
+@keyframes shimmer {
+  0%,100% { opacity: 1; }
+  50%      { opacity: 0.65; }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up    { animation: fadeUp 0.3s ease both; }
+.slide-down { animation: slideDown 0.25s ease both; }

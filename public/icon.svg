@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1424"/>
+      <stop offset="100%" stop-color="#0a0e1a"/>
+    </linearGradient>
+    <linearGradient id="cylGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1e2d4a"/>
+      <stop offset="40%" stop-color="#2e4570"/>
+      <stop offset="100%" stop-color="#1a2540"/>
+    </linearGradient>
+    <radialGradient id="signalGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00e5a0" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#00e5a0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="flameGrad" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#ff4560"/>
+      <stop offset="50%" stop-color="#ffb020"/>
+      <stop offset="100%" stop-color="#fff176"/>
+    </linearGradient>
+    <radialGradient id="alertGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff4560" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#ff4560" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="100" height="100" rx="22" fill="url(#bgGrad)"/>
+  <line x1="0" y1="50" x2="100" y2="50" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>
+  <line x1="50" y1="0" x2="50" y2="100" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>
+
+  <!-- IoT WiFi signal arcs (top-right) -->
+  <circle cx="74" cy="26" r="14" fill="url(#signalGlow)"/>
+  <path d="M65 26 Q74 17 83 26" stroke="#00e5a0" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.9"/>
+  <path d="M68.5 26 Q74 20.5 79.5 26" stroke="#00e5a0" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.7"/>
+  <circle cx="74" cy="26" r="2.2" fill="#00e5a0"/>
+
+  <!-- Cylinder valve/nozzle -->
+  <rect x="46" y="23" width="8" height="5" rx="2" fill="#3a5080"/>
+  <rect x="48" y="19" width="4" height="5" rx="1.5" fill="#2e4570"/>
+
+  <!-- Cylinder body -->
+  <rect x="34" y="27" width="32" height="42" rx="10" fill="url(#cylGrad)"/>
+  <rect x="37" y="30" width="6" height="34" rx="3" fill="#ffffff" fill-opacity="0.07"/>
+  <ellipse cx="50" cy="69" rx="16" ry="5" fill="#1a2540"/>
+  <rect x="34" y="50" width="32" height="5" rx="0" fill="#ffffff" fill-opacity="0.05"/>
+
+  <!-- Flame (gas leak) -->
+  <path d="M50 23 C47 18 44 16 46 11 C43 14 40 18 43 22 C41 20 41 17 42 15 C39 19 40 24 44 25 Z"
+        fill="url(#flameGrad)" opacity="0.95"/>
+
+  <!-- Alert badge bottom-right -->
+  <circle cx="74" cy="72" r="9" fill="url(#alertGrad)"/>
+  <circle cx="74" cy="72" r="6" fill="#ff4560"/>
+  <rect x="73" y="68" width="2" height="5" rx="1" fill="#fff"/>
+  <rect x="73" y="75" width="2" height="2" rx="1" fill="#fff"/>
+
+  <!-- Wordmark -->
+  <text x="50" y="88" text-anchor="middle" font-family="Arial, sans-serif" font-weight="700"
+        font-size="7" fill="#00e5a0" fill-opacity="0.55" letter-spacing="2">GasWatch</text>
+</svg>
