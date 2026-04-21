@@ -13,31 +13,38 @@ export const CYLINDER_PRESETS = [
 ]
 const DEFAULT_CYLINDER = '6kg'
 
-// ─── weightToPercent — handles BOTH total weight and net-gas-only weight ──
-// customTare_g: if set (from manual calibration), uses that instead of preset tare
+// ─── weightToPercent ──────────────────────────────────────────────────────
+// ESP32 always sends TOTAL weight (cylinder body + remaining gas).
+// If the user has entered a tare (empty cylinder weight), subtract it
+// to get gas-only weight, then express as % of a full cylinder.
+// If no tare is entered, the full received weight is treated as gas weight
+// and shown as a percentage of net_g directly.
 const weightToPercent = (weight_g, preset, customTare_g = null) => {
   if (weight_g == null || !preset) return 0
   const w = parseFloat(weight_g)
   if (isNaN(w)) return 0
 
-  const tare = customTare_g != null ? parseFloat(customTare_g) : preset.tare_g
+  let gasRemaining
 
-  // If weight is less than or equal to net_g, the ESP32 is probably sending
-  // net gas weight only (already subtracted tare). Use it directly.
-  const looksLikeNetOnly = (customTare_g == null) && (w <= preset.net_g * 1.05)
+  if (customTare_g != null) {
+    // User has entered their cylinder's empty (tare) weight —
+    // subtract it from the total weight to get actual gas remaining.
+    gasRemaining = w - parseFloat(customTare_g)
+  } else {
+    // No tare entered yet — treat the whole received weight as gas weight.
+    // The percentage will be relative until the user sets a tare.
+    gasRemaining = w
+  }
 
-  const gasRemaining = looksLikeNetOnly ? w : (w - tare)
   const raw     = (gasRemaining / preset.net_g) * 100
   const clamped = Math.min(100, Math.max(0, raw))
   return isNaN(clamped) ? 0 : parseFloat(clamped.toFixed(2))
 }
 
 // ─── MQ6 thresholds ────────────────────────────────────────────────────────
-// These match PPM_SAFE_LIMIT and PPM_LOW_LIMIT in the ESP32 firmware.
-const LPG_PPM_LOW  = 200   // matches PPM_SAFE_LIMIT in firmware
-const LPG_PPM_HIGH = 1000  // matches PPM_LOW_LIMIT  in firmware
+const LPG_PPM_LOW  = 200
+const LPG_PPM_HIGH = 1000
 
-// Always derive severity from ppm — never trust the ESP32 severity field alone.
 const deriveSeverity = (ppm) => {
   if (ppm == null || ppm < LPG_PPM_LOW) return 'safe'
   if (ppm >= LPG_PPM_HIGH) return 'high'
@@ -218,88 +225,45 @@ function BarChart({ data, color, showValues = true, yAxisLabel = '' }) {
   if (!data || data.length === 0) return (
     <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>No data yet</div>
   )
-  
+
   const max = Math.max(...data.map(d => d.value), 1)
   const barAreaHeight = 100
   const yAxisWidth = 40
-  
-  // Calculate Y-axis ticks
+
   const yTicks = [0, Math.round(max * 0.25), Math.round(max * 0.5), Math.round(max * 0.75), max]
-  
+
   return (
     <div style={{ width: '100%' }}>
       <div style={{ display: 'flex', gap: 8 }}>
-        {/* Y-axis labels */}
-        <div style={{ 
-          width: yAxisWidth, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          justifyContent: 'space-between',
-          height: barAreaHeight,
-          paddingRight: 8,
-          borderRight: '1px solid var(--border)',
-          marginRight: 8
+        <div style={{
+          width: yAxisWidth,
+          display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+          height: barAreaHeight, paddingRight: 8,
+          borderRight: '1px solid var(--border)', marginRight: 8
         }}>
           {yTicks.slice().reverse().map((tick, i) => (
-            <div key={i} style={{ 
-              fontFamily: 'var(--font-mono)', 
-              fontSize: 10, 
-              color: 'var(--text-3)',
-              textAlign: 'right',
-              lineHeight: 1
-            }}>
+            <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', textAlign: 'right', lineHeight: 1 }}>
               {tick}
             </div>
           ))}
         </div>
-        
-        {/* Bars container */}
         <div style={{ flex: 1 }}>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'flex-end', 
-            gap: 6, 
-            height: barAreaHeight, 
-            width: '100%',
-            borderBottom: '1px solid var(--border)'
-          }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: barAreaHeight, width: '100%', borderBottom: '1px solid var(--border)' }}>
             {data.map((d, i) => (
-              <div key={i} style={{ 
-                flex: 1, 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center', 
-                gap: 4, 
-                height: '100%', 
-                justifyContent: 'flex-end', 
-                minWidth: 0 
-              }}>
-                <div style={{ 
-                  width: '100%', 
-                  borderRadius: '3px 3px 0 0', 
-                  height: `${(d.value / max) * (barAreaHeight - 20)}px`, 
-                  minHeight: d.value > 0 ? 3 : 0, 
-                  background: color, 
-                  opacity: d.value > 0 ? 1 : 0.15, 
-                  transition: 'height 0.6s cubic-bezier(.4,0,.2,1)',
-                  position: 'relative',
+              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', minWidth: 0 }}>
+                <div style={{
+                  width: '100%', borderRadius: '3px 3px 0 0',
+                  height: `${(d.value / max) * (barAreaHeight - 20)}px`,
+                  minHeight: d.value > 0 ? 3 : 0,
+                  background: color, opacity: d.value > 0 ? 1 : 0.15,
+                  transition: 'height 0.6s cubic-bezier(.4,0,.2,1)', position: 'relative',
                 }}>
-                  {/* Value label on top of bar */}
                   {showValues && d.value > 0 && (
                     <div style={{
-                      position: 'absolute',
-                      top: -20,
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 9,
-                      color: color,
-                      fontWeight: 600,
-                      whiteSpace: 'nowrap',
-                      background: 'rgba(0,0,0,0.7)',
-                      padding: '2px 5px',
-                      borderRadius: 4,
-                      pointerEvents: 'none',
+                      position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)',
+                      fontFamily: 'var(--font-mono)', fontSize: 9, color: color, fontWeight: 600,
+                      whiteSpace: 'nowrap', background: 'rgba(0,0,0,0.7)', padding: '2px 5px',
+                      borderRadius: 4, pointerEvents: 'none',
                     }}>
                       {d.value}
                     </div>
@@ -310,13 +274,7 @@ function BarChart({ data, color, showValues = true, yAxisLabel = '' }) {
             ))}
           </div>
           {yAxisLabel && (
-            <div style={{ 
-              textAlign: 'center', 
-              marginTop: 8, 
-              fontFamily: 'var(--font-mono)', 
-              fontSize: 9, 
-              color: 'var(--text-3)' 
-            }}>
+            <div style={{ textAlign: 'center', marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)' }}>
               {yAxisLabel}
             </div>
           )}
@@ -331,134 +289,43 @@ function DualBarChart({ data, showValues = true }) {
   if (!data || data.length === 0) return (
     <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>No data yet</div>
   )
-  
+
   const max = Math.max(...data.map(d => Math.max(d.high, d.low)), 1)
   const barAreaHeight = 100
   const yAxisWidth = 40
-  
-  // Calculate Y-axis ticks
   const yTicks = [0, Math.round(max * 0.25), Math.round(max * 0.5), Math.round(max * 0.75), max]
-  
+
   return (
     <div style={{ width: '100%' }}>
       <div style={{ display: 'flex', gap: 8 }}>
-        {/* Y-axis labels */}
-        <div style={{ 
-          width: yAxisWidth, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          justifyContent: 'space-between',
-          height: barAreaHeight,
-          paddingRight: 8,
-          borderRight: '1px solid var(--border)',
-          marginRight: 8
+        <div style={{
+          width: yAxisWidth, display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+          height: barAreaHeight, paddingRight: 8, borderRight: '1px solid var(--border)', marginRight: 8
         }}>
           {yTicks.slice().reverse().map((tick, i) => (
-            <div key={i} style={{ 
-              fontFamily: 'var(--font-mono)', 
-              fontSize: 10, 
-              color: 'var(--text-3)',
-              textAlign: 'right',
-              lineHeight: 1
-            }}>
+            <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', textAlign: 'right', lineHeight: 1 }}>
               {tick}
             </div>
           ))}
         </div>
-        
-        {/* Bars container */}
         <div style={{ flex: 1 }}>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'flex-end', 
-            gap: 6, 
-            height: barAreaHeight, 
-            width: '100%',
-            borderBottom: '1px solid var(--border)'
-          }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: barAreaHeight, width: '100%', borderBottom: '1px solid var(--border)' }}>
             {data.map((d, i) => {
               const maxBarHeight = Math.max(d.high, d.low)
               const barHeightPercent = (maxBarHeight / max) * (barAreaHeight - 20)
-              
               return (
-                <div key={i} style={{ 
-                  flex: 1, 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  alignItems: 'center', 
-                  gap: 4, 
-                  height: '100%', 
-                  justifyContent: 'flex-end', 
-                  minWidth: 0 
-                }}>
-                  <div style={{ 
-                    width: '100%', 
-                    display: 'flex', 
-                    gap: 3, 
-                    alignItems: 'flex-end', 
-                    justifyContent: 'center',
-                    height: barHeightPercent,
-                    minHeight: (d.high > 0 || d.low > 0) ? 3 : 0,
-                  }}>
-                    {/* High bar (red) */}
-                    <div style={{ 
-                      flex: 1, 
-                      borderRadius: '2px 2px 0 0', 
-                      height: maxBarHeight > 0 ? `${(d.high / maxBarHeight) * 100}%` : '0%',
-                      minHeight: d.high > 0 ? 3 : 0,
-                      background: '#ff4560', 
-                      opacity: d.high > 0 ? 1 : 0.12,
-                      position: 'relative',
-                      transition: 'height 0.6s cubic-bezier(.4,0,.2,1)'
-                    }}>
+                <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', minWidth: 0 }}>
+                  <div style={{ width: '100%', display: 'flex', gap: 3, alignItems: 'flex-end', justifyContent: 'center', height: barHeightPercent, minHeight: (d.high > 0 || d.low > 0) ? 3 : 0 }}>
+                    <div style={{ flex: 1, borderRadius: '2px 2px 0 0', height: maxBarHeight > 0 ? `${(d.high / maxBarHeight) * 100}%` : '0%', minHeight: d.high > 0 ? 3 : 0, background: '#ff4560', opacity: d.high > 0 ? 1 : 0.12, position: 'relative', transition: 'height 0.6s cubic-bezier(.4,0,.2,1)' }}>
                       {showValues && d.high > 0 && (
-                        <div style={{
-                          position: 'absolute',
-                          top: -20,
-                          left: '50%',
-                          transform: 'translateX(-50%)',
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: 8,
-                          color: '#ff4560',
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                          background: 'rgba(0,0,0,0.7)',
-                          padding: '2px 4px',
-                          borderRadius: 4,
-                          pointerEvents: 'none',
-                        }}>
+                        <div style={{ position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)', fontFamily: 'var(--font-mono)', fontSize: 8, color: '#ff4560', fontWeight: 600, whiteSpace: 'nowrap', background: 'rgba(0,0,0,0.7)', padding: '2px 4px', borderRadius: 4, pointerEvents: 'none' }}>
                           {d.high}
                         </div>
                       )}
                     </div>
-                    
-                    {/* Low bar (orange) */}
-                    <div style={{ 
-                      flex: 1, 
-                      borderRadius: '2px 2px 0 0', 
-                      height: maxBarHeight > 0 ? `${(d.low / maxBarHeight) * 100}%` : '0%',
-                      minHeight: d.low > 0 ? 3 : 0,
-                      background: '#ffb020', 
-                      opacity: d.low > 0 ? 1 : 0.12,
-                      position: 'relative',
-                      transition: 'height 0.6s cubic-bezier(.4,0,.2,1)'
-                    }}>
+                    <div style={{ flex: 1, borderRadius: '2px 2px 0 0', height: maxBarHeight > 0 ? `${(d.low / maxBarHeight) * 100}%` : '0%', minHeight: d.low > 0 ? 3 : 0, background: '#ffb020', opacity: d.low > 0 ? 1 : 0.12, position: 'relative', transition: 'height 0.6s cubic-bezier(.4,0,.2,1)' }}>
                       {showValues && d.low > 0 && (
-                        <div style={{
-                          position: 'absolute',
-                          top: -20,
-                          left: '50%',
-                          transform: 'translateX(-50%)',
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: 8,
-                          color: '#ffb020',
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                          background: 'rgba(0,0,0,0.7)',
-                          padding: '2px 4px',
-                          borderRadius: 4,
-                          pointerEvents: 'none',
-                        }}>
+                        <div style={{ position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)', fontFamily: 'var(--font-mono)', fontSize: 8, color: '#ffb020', fontWeight: 600, whiteSpace: 'nowrap', background: 'rgba(0,0,0,0.7)', padding: '2px 4px', borderRadius: 4, pointerEvents: 'none' }}>
                           {d.low}
                         </div>
                       )}
@@ -469,16 +336,12 @@ function DualBarChart({ data, showValues = true }) {
               )
             })}
           </div>
-          
-          {/* Legend */}
           <div style={{ display: 'flex', gap: 16, marginTop: 12, justifyContent: 'center' }}>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 12, height: 12, background: '#ff4560', borderRadius: 2 }}></span>
-              High Leaks
+              <span style={{ width: 12, height: 12, background: '#ff4560', borderRadius: 2 }}></span>High Leaks
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 12, height: 12, background: '#ffb020', borderRadius: 2 }}></span>
-              Low Leaks
+              <span style={{ width: 12, height: 12, background: '#ffb020', borderRadius: 2 }}></span>Low Leaks
             </span>
           </div>
         </div>
@@ -515,7 +378,7 @@ function CylinderSelector({ selectedId, onChange }) {
     <div>
       <SectionTitle>⚖️ Gas Cylinder Size</SectionTitle>
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-2)', marginBottom: 14, lineHeight: 1.6 }}>
-        Select your LPG cylinder size. The app uses this to calculate gas level (%) from the load cell weight.
+        Select your LPG cylinder size. This tells the app how much gas a full cylinder holds (net_g), used to calculate the percentage.
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
         {CYLINDER_PRESETS.map(p => {
@@ -532,13 +395,14 @@ function CylinderSelector({ selectedId, onChange }) {
             }}>
               {p.label}
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: active ? 'rgba(77,142,255,0.8)' : 'var(--text-3)', fontWeight: 400 }}>{(p.net_g / 1000).toFixed(0)}kg gas</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)', fontWeight: 400 }}>tare {(p.tare_g / 1000).toFixed(0)}kg</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)', fontWeight: 400 }}>tare ~{(p.tare_g / 1000).toFixed(0)}kg</span>
             </button>
           )
         })}
       </div>
       <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface2)', border: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', lineHeight: 1.7 }}>
-        Formula: <span style={{ color: 'var(--text-2)' }}>(weight_grams − tare) ÷ net_gas × 100</span> · Clamped 0–100%
+        Formula (tare set): <span style={{ color: 'var(--text-2)' }}>(total_weight − tare) ÷ net_gas × 100</span><br />
+        Formula (no tare): <span style={{ color: 'var(--text-2)' }}>total_weight ÷ net_gas × 100</span>
       </div>
     </div>
   )
@@ -575,8 +439,8 @@ export default function App() {
   const [cylinderId, setCylinderIdRaw]           = useState(() => localStorage.getItem('gaswatch_cylinder') || DEFAULT_CYLINDER)
   const cylinderPreset                           = CYLINDER_PRESETS.find(p => p.id === cylinderId) || CYLINDER_PRESETS[1]
 
-  // customTare_g: weight of your EMPTY cylinder (set via calibration in Device tab)
-  // When null, the app auto-detects whether ESP32 sends total or net-only weight
+  // customTare_g: empty cylinder weight in grams entered by the user.
+  // When null, the full weight from ESP32 is used as gas weight directly.
   const [customTare_g, setCustomTare_g]          = useState(() => {
     const v = localStorage.getItem('gaswatch_custom_tare')
     return v != null ? parseFloat(v) : null
@@ -660,7 +524,7 @@ export default function App() {
 
   const handleLeakEvent = useCallback((sev, id, ts, rawPpm, rawAdc) => {
     const fPpm = filterPpm(rawPpm)
-    const fSev = deriveSeverity(rawPpm)  // always re-derive — don't trust firmware severity field
+    const fSev = deriveSeverity(rawPpm)
     setSeverity(fSev); setLastSeen(new Date(ts || Date.now()))
     setCurrentPpm(fPpm)
     if (fPpm != null) setPpmHistory(h => [...h.slice(-59), fPpm])
@@ -700,7 +564,6 @@ export default function App() {
           const nw = genDemoWeight(prev)
           const pr = cylinderPresetRef.current
           const ct = customTareRef.current
-          // FIX: Update history directly here to avoid async issues
           setLevelHistory(h => [...h.slice(-59), weightToPercent(nw, pr, ct)])
           return nw
         })
@@ -720,7 +583,6 @@ export default function App() {
 
     let levelCh, leakCh
     async function init() {
-      // Load initial gas level history
       const { data: lvls } = await supabase
         .from('gas_levels')
         .select('weight_grams,created_at')
@@ -731,15 +593,12 @@ export default function App() {
         const pr = cylinderPresetRef.current
         const ct = customTareRef.current
         const latestWeight = Number(lvls[0].weight_grams)
-        
-        // Set all together
         setRawWeightG(latestWeight)
         setLastSeen(new Date(lvls[0].created_at))
         setConnected(true)
         setLevelHistory(lvls.map(r => weightToPercent(Number(r.weight_grams), pr, ct)).reverse())
       }
 
-      // Load initial leakage data
       const { data: leaks } = await supabase
         .from('gas_leakages')
         .select('id,severity,raw_value,ppm_approx,created_at')
@@ -766,7 +625,6 @@ export default function App() {
         setConnected(true)
       }
 
-      // Weekly analytics (unchanged)
       const sevenAgo = new Date(Date.now() - 7 * 86400000).toISOString()
       const { data: wLvls } = await supabase
         .from('gas_levels')
@@ -820,14 +678,12 @@ export default function App() {
 
     init()
 
-    // Realtime subscription
     if (supabase) {
       levelCh = supabase.channel('rt-levels')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'gas_levels' }, p => {
           const w = Number(p.new.weight_grams)
           const pr = cylinderPresetRef.current
           const ct = customTareRef.current
-          
           setRawWeightG(w)
           setLastSeen(new Date(p.new.created_at))
           setConnected(true)
@@ -879,7 +735,6 @@ export default function App() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column', width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
 
-      {/* ── HEADER ─────────────────────────────────────────────── */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 200,
         background: 'rgba(10,14,26,0.92)', backdropFilter: 'blur(16px)',
@@ -910,7 +765,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── COOKING MODE BANNER ─────────────────────────────────── */}
       {cookingMode && (
         <div className="slide-down" style={{
           position: 'sticky', top: 56, zIndex: 190,
@@ -928,7 +782,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ── ALARM BANNER ────────────────────────────────────────── */}
       {alarmBanner && !cookingMode && (
         <div className="slide-down" style={{
           position: 'sticky', top: cookingMode ? 112 : 56, zIndex: 190,
@@ -953,7 +806,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ─── DESKTOP TAB NAV ─────────────────────────────────────── */}
       <nav id="desktop-nav" style={{
         background: 'rgba(10,14,26,0.8)', backdropFilter: 'blur(12px)',
         borderBottom: '1px solid var(--border)',
@@ -978,7 +830,6 @@ export default function App() {
         ))}
       </nav>
 
-      {/* ── MAIN CONTENT ────────────────────────────────────────── */}
       <main id="main-content" className="fade-up" style={{ flex: 1, padding: '16px', maxWidth: 960, width: '100%', margin: '0 auto', minWidth: 0, overflowX: 'hidden' }}>
 
         {tab === 'dashboard' && (
@@ -1025,7 +876,6 @@ export default function App() {
         )}
       </main>
 
-      {/* ── MOBILE BOTTOM NAV ───────────────────────────────────── */}
       <nav id="mobile-nav" style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 200,
         background: 'rgba(10,14,26,0.97)', backdropFilter: 'blur(16px)',
@@ -1269,19 +1119,13 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
   const [tareInput, setTareInput] = useState(
     customTare_g != null ? String(customTare_g / 1000) : ''
   )
-  const [tareMsg, setTareMsg] = useState(null) // { text, ok }
+  const [tareMsg, setTareMsg] = useState(null)
 
-  // What mode is the app currently using?
   const usingCustomTare = customTare_g != null
-  const usingAutoNet    = !usingCustomTare && rawWeightG != null && rawWeightG <= cylinderPreset.net_g * 1.05
-  const usingPresetTare = !usingCustomTare && !usingAutoNet
-
   const modeLabel = usingCustomTare
-    ? `Custom tare: ${(customTare_g / 1000).toFixed(2)} kg`
-    : usingAutoNet
-      ? 'Auto-detected: net gas weight mode'
-      : `Preset tare: ${(cylinderPreset.tare_g / 1000).toFixed(0)} kg`
-  const modeColor = usingCustomTare ? '#00e5a0' : usingAutoNet ? '#4d8eff' : '#ffb020'
+    ? `Custom tare: ${(customTare_g / 1000).toFixed(2)} kg — gas = total − tare`
+    : 'No tare set — total weight used as gas weight'
+  const modeColor = usingCustomTare ? '#00e5a0' : '#ffb020'
 
   const handleSaveTare = () => {
     const kg = parseFloat(tareInput)
@@ -1290,38 +1134,35 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
       return
     }
     setCustomTare(kg * 1000)
-    setTareMsg({ text: `✓ Tare set to ${kg.toFixed(2)} kg — gauge will update now`, ok: true })
+    setTareMsg({ text: `✓ Tare set to ${kg.toFixed(2)} kg — gas % updated`, ok: true })
     setTimeout(() => setTareMsg(null), 4000)
   }
 
   const handleClearTare = () => {
     setCustomTare(null)
     setTareInput('')
-    setTareMsg({ text: 'Custom tare cleared — using auto-detection', ok: true })
+    setTareMsg({ text: 'Tare cleared — total weight now used as gas weight', ok: true })
     setTimeout(() => setTareMsg(null), 3000)
   }
 
-  // "Set tare from live reading" — stamp current weight as the empty-cylinder weight
   const handleStampTare = () => {
     if (rawWeightG == null) return
     const kg = rawWeightG / 1000
-    setTareInput(kg.toFixed(2))
+    setTareInput(kg.toFixed(3))
     setCustomTare(rawWeightG)
-    setTareMsg({ text: `✓ Tare stamped at ${kg.toFixed(2)} kg (current reading)`, ok: true })
+    setTareMsg({ text: `✓ Tare stamped at ${kg.toFixed(3)} kg (current reading)`, ok: true })
     setTimeout(() => setTareMsg(null), 4000)
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: '100%', overflowX: 'hidden', minWidth: 0 }}>
 
-      {/* ── Cylinder selector ── */}
       <Card style={{ marginBottom: 0, minWidth: 0 }}>
         <CylinderSelector selectedId={cylinderId} onChange={setCylinderId} />
       </Card>
 
-      {/* ── Weight Calibration card ── */}
       <Card accent="#4d8eff" style={{ minWidth: 0 }}>
-        <SectionTitle>⚖️ Load Cell Calibration</SectionTitle>
+        <SectionTitle>⚖️ Tare Weight Calibration</SectionTitle>
 
         {/* Current mode banner */}
         <div style={{
@@ -1330,7 +1171,7 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: modeColor, flexShrink: 0, boxShadow: `0 0 8px ${modeColor}` }} />
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: modeColor, fontWeight: 600, letterSpacing: '0.05em' }}>
               ACTIVE MODE
             </div>
@@ -1356,7 +1197,7 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
             display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
           }}>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-3)' }}>
-              Live reading from ESP32
+              Total weight from ESP32
             </span>
             <span style={{ fontFamily: 'var(--font-disp)', fontSize: 18, fontWeight: 800, color: 'var(--text-1)' }}>
               {(rawWeightG / 1000).toFixed(3)} kg
@@ -1367,10 +1208,11 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
           </div>
         )}
 
-        {/* Explanation */}
+        {/* How it works explanation */}
         <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-2)', lineHeight: 1.65, marginBottom: 16 }}>
-          If the percentage reads <strong style={{ color: 'var(--text-1)' }}>0% / always red</strong>, your ESP32 is sending the
-          weight differently than expected. Use one of the options below to fix it.
+          The ESP32 sends the <strong style={{ color: 'var(--text-1)' }}>total weight</strong> of everything on the scale.
+          Enter your empty cylinder's tare weight below so the app can subtract it and show you the <strong style={{ color: 'var(--text-1)' }}>actual gas remaining</strong>.
+          If you leave it blank, the full received weight is used as-is.
         </div>
 
         {/* Option A: stamp tare from live reading */}
@@ -1383,14 +1225,14 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
               Option A — Empty cylinder on scale right now?
             </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
-              Place your <strong style={{ color: 'var(--text-2)' }}>empty cylinder</strong> on the scale, wait for a stable reading, then tap below to stamp the current reading as the tare weight.
+              Place your <strong style={{ color: 'var(--text-2)' }}>empty cylinder</strong> on the scale, wait for a stable reading, then tap to stamp the current reading as the tare.
             </div>
             <button onClick={handleStampTare} style={{
               padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
               background: 'rgba(0,229,160,0.15)', border: '1px solid rgba(0,229,160,0.4)',
               color: '#00e5a0', letterSpacing: '0.03em',
             }}>
-              📍 Stamp {rawWeightG != null ? `${(rawWeightG / 1000).toFixed(3)} kg` : '—'} as Empty Tare
+              📍 Stamp {rawWeightG != null ? `${(rawWeightG / 1000).toFixed(3)} kg` : '—'} as Tare
             </button>
           </div>
         )}
@@ -1401,17 +1243,17 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
           background: 'rgba(77,142,255,0.06)', border: '1px solid rgba(77,142,255,0.2)',
         }}>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#4d8eff', marginBottom: 4 }}>
-            Option B — Enter empty cylinder weight manually
+            Option B — Enter tare weight manually
           </div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
             Check the sticker on your cylinder for the tare weight (marked <strong style={{ color: 'var(--text-2)' }}>T</strong> or <strong style={{ color: 'var(--text-2)' }}>Tare</strong>), then enter it below in kg.
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <input
-              type="number" min="1" max="30" step="0.01"
+              type="number" min="1" max="30" step="0.001"
               value={tareInput}
               onChange={e => setTareInput(e.target.value)}
-              placeholder={`e.g. ${(cylinderPreset.tare_g / 1000).toFixed(0)}.00`}
+              placeholder={`e.g. ${(cylinderPreset.tare_g / 1000).toFixed(1)}`}
               style={{
                 flex: 1, minWidth: 100, padding: '8px 12px', borderRadius: 8,
                 background: 'var(--surface3)', border: '1px solid var(--border2)',
@@ -1432,7 +1274,7 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
                 background: 'var(--surface2)', border: '1px solid var(--border)',
                 color: 'var(--text-3)', whiteSpace: 'nowrap',
               }}>
-                Reset
+                Clear
               </button>
             )}
           </div>
@@ -1453,15 +1295,15 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
 
         {/* Formula display */}
         <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface3)', border: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', lineHeight: 1.8 }}>
-          {usingAutoNet
-            ? <>Formula: <span style={{ color: 'var(--text-2)' }}>weight_g ÷ {cylinderPreset.net_g} × 100</span> <span style={{ color: '#4d8eff' }}>(net-only mode)</span></>
-            : <>Formula: <span style={{ color: 'var(--text-2)' }}>(weight_g − {usingCustomTare ? customTare_g : cylinderPreset.tare_g}g) ÷ {cylinderPreset.net_g} × 100</span></>
+          {usingCustomTare
+            ? <>Formula: <span style={{ color: 'var(--text-2)' }}>({rawWeightG?.toFixed(0) ?? 'weight'}g − {customTare_g}g) ÷ {cylinderPreset.net_g}g × 100</span></>
+            : <>Formula: <span style={{ color: 'var(--text-2)' }}>{rawWeightG?.toFixed(0) ?? 'weight'}g ÷ {cylinderPreset.net_g}g × 100</span> <span style={{ color: '#ffb020' }}>(no tare set)</span></>
           }
           {' '}· Clamped 0–100%
         </div>
       </Card>
 
-      {/* ── ESP32 Status ── */}
+      {/* ESP32 Status */}
       <Card accent="#4d8eff" style={{ minWidth: 0 }}>
         <SectionTitle>ESP32 Status</SectionTitle>
         {[
@@ -1478,15 +1320,15 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
         ))}
       </Card>
 
-      {/* ── Live MQ6 Readings ── */}
+      {/* Live MQ6 Readings */}
       <Card style={{ minWidth: 0 }}>
         <SectionTitle>Live MQ6 Readings</SectionTitle>
         {[
-          { k: 'Severity',   v: cookingMode ? 'PAUSED' : displaySev.toUpperCase(),                   col: cookingMode ? '#ffb020' : sCol.main },
-          { k: 'PPM (≥300)', v: displayPpm != null ? `~${Math.round(displayPpm)} ppm` : '0 ppm',     col: displayPpm ? sCol.main : 'var(--text-3)' },
-          { k: 'Raw ADC',    v: currentRaw != null ? currentRaw : '—',                               col: 'var(--text-2)' },
-          { k: '7d Avg PPM', v: avgPpm7d != null ? `${avgPpm7d} ppm` : '0 ppm',                     col: 'var(--text-2)' },
-          { k: '7d Peak',    v: maxPpm7d != null ? `${maxPpm7d} ppm` : '0 ppm',                     col: maxPpm7d > 500 ? '#ff4560' : maxPpm7d > 300 ? '#ffb020' : 'var(--text-2)' },
+          { k: 'Severity',   v: cookingMode ? 'PAUSED' : displaySev.toUpperCase(),               col: cookingMode ? '#ffb020' : sCol.main },
+          { k: 'PPM (≥300)', v: displayPpm != null ? `~${Math.round(displayPpm)} ppm` : '0 ppm', col: displayPpm ? sCol.main : 'var(--text-3)' },
+          { k: 'Raw ADC',    v: currentRaw != null ? currentRaw : '—',                           col: 'var(--text-2)' },
+          { k: '7d Avg PPM', v: avgPpm7d != null ? `${avgPpm7d} ppm` : '0 ppm',                 col: 'var(--text-2)' },
+          { k: '7d Peak',    v: maxPpm7d != null ? `${maxPpm7d} ppm` : '0 ppm',                 col: maxPpm7d > 500 ? '#ff4560' : maxPpm7d > 300 ? '#ffb020' : 'var(--text-2)' },
         ].map((r, i, arr) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none', gap: 12, flexWrap: 'wrap' }}>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--text-3)', flexShrink: 0 }}>{r.k}</span>
@@ -1495,7 +1337,7 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
         ))}
       </Card>
 
-      {/* ── Sensor Health ── */}
+      {/* Sensor Health */}
       <Card style={{ minWidth: 0 }}>
         <SectionTitle>Sensor Health</SectionTitle>
         {[
@@ -1518,13 +1360,13 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
         ))}
       </Card>
 
-      {/* ── Integration Notes ── */}
+      {/* Integration Notes */}
       <Card style={{ minWidth: 0 }}>
         <SectionTitle>Integration Notes</SectionTitle>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[
             { icon: '🔗', title: 'ESP32 WiFi',      desc: 'Set WIFI_SSID + WIFI_PASSWORD in firmware.' },
-            { icon: '⚖️', title: 'HX711 Load Cell', desc: 'Posts weight_grams every 5 s. Use the calibration card above if the % is stuck at 0.' },
+            { icon: '⚖️', title: 'HX711 Load Cell', desc: 'Posts total weight every 5s. Set your tare in the calibration card above so the app calculates gas % correctly.' },
             { icon: '📊', title: 'MQ6 Table',        desc: 'Posts severity, raw_value, ppm_approx. Readings below 300 ppm are suppressed.' },
             { icon: '📡', title: 'Realtime',          desc: 'Enable Realtime on both tables in Supabase → Database → Replication.' },
           ].map((c, i) => (
