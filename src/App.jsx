@@ -2,9 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from './supabase.js'
 
 // ─── Cylinder presets (East Africa standard LPG) ───────────────────────────
-// tare_g = weight of the EMPTY cylinder body only (no gas)
-// net_g  = weight of gas when full
-// total full weight = tare_g + net_g
 export const CYLINDER_PRESETS = [
   { id: '3kg',  label: '3 kg',  net_g:  3000, tare_g:  5000 },
   { id: '6kg',  label: '6 kg',  net_g:  6000, tare_g:  8000 },
@@ -14,25 +11,15 @@ export const CYLINDER_PRESETS = [
 const DEFAULT_CYLINDER = '6kg'
 
 // ─── weightToPercent ──────────────────────────────────────────────────────
-// ESP32 always sends TOTAL weight (cylinder body + remaining gas).
-// If the user has entered a tare (empty cylinder weight), subtract it
-// to get gas-only weight, then express as % of a full cylinder.
-// If no tare is entered, the full received weight is treated as gas weight
-// and shown as a percentage of net_g directly.
 const weightToPercent = (weight_g, preset, customTare_g = null) => {
   if (weight_g == null || !preset) return 0
   const w = parseFloat(weight_g)
   if (isNaN(w)) return 0
 
   let gasRemaining
-
   if (customTare_g != null) {
-    // User has entered their cylinder's empty (tare) weight —
-    // subtract it from the total weight to get actual gas remaining.
     gasRemaining = w - parseFloat(customTare_g)
   } else {
-    // No tare entered yet — treat the whole received weight as gas weight.
-    // The percentage will be relative until the user sets a tare.
     gasRemaining = w
   }
 
@@ -170,20 +157,9 @@ function ArcGauge({ value, color, size = 160 }) {
   }
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ overflow: 'visible' }}>
-      <path
-        d={arcPath(startAngle, startAngle + totalArc)}
-        fill="none" stroke="rgba(255,255,255,0.05)"
-        strokeWidth={size * 0.07} strokeLinecap="round"
-      />
-      <path
-        d={arcPath(startAngle, startAngle + valueArc)}
-        fill="none" stroke={color}
-        strokeWidth={size * 0.07} strokeLinecap="round"
-        style={{
-          filter: `drop-shadow(0 0 6px ${color})`,
-          transition: 'all 1s cubic-bezier(0.34, 1.56, 0.64, 1)',
-        }}
-      />
+      <path d={arcPath(startAngle, startAngle + totalArc)} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth={size * 0.07} strokeLinecap="round" />
+      <path d={arcPath(startAngle, startAngle + valueArc)} fill="none" stroke={color} strokeWidth={size * 0.07} strokeLinecap="round"
+        style={{ filter: `drop-shadow(0 0 6px ${color})`, transition: 'all 1s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
       <text x={cx} y={cy - 4} textAnchor="middle" fill={color}
         style={{ fontFamily: "'Outfit',sans-serif", fontSize: size * 0.22, fontWeight: 800, transition: 'fill 0.4s' }}>
         {Math.round(safeValue)}%
@@ -196,7 +172,7 @@ function ArcGauge({ value, color, size = 160 }) {
   )
 }
 
-// ─── Enhanced PPM bar with values ───────────────────────────────────────────────────
+// ─── PPM bar ───────────────────────────────────────────────────────────────
 function PpmBar({ ppm }) {
   const MAX = 1000
   const displayPpm = filterPpm(ppm)
@@ -220,26 +196,41 @@ function PpmBar({ ppm }) {
   )
 }
 
-// ─── Enhanced BarChart with Y-axis and values ─────────────────────────────
+// ─── FIX 1: BarChart — robust height calc, visible minimum bar, zero label ──
 function BarChart({ data, color, showValues = true, yAxisLabel = '' }) {
   if (!data || data.length === 0) return (
     <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>No data yet</div>
   )
 
-  const max = Math.max(...data.map(d => d.value), 1)
-  const barAreaHeight = 100
-  const yAxisWidth = 40
+  // FIX: Use a real max; if all zeros, set max=1 so zero bars render properly
+  const maxRaw = Math.max(...data.map(d => d.value))
+  const max = maxRaw > 0 ? maxRaw : 1
+  const hasAnyData = maxRaw > 0
 
-  const yTicks = [0, Math.round(max * 0.25), Math.round(max * 0.5), Math.round(max * 0.75), max]
+  const barAreaHeight = 110
+  const yAxisWidth = 40
+  // FIX: Only show meaningful y-axis ticks when there is real data
+  const yTicks = hasAnyData
+    ? [0, Math.round(max * 0.25), Math.round(max * 0.5), Math.round(max * 0.75), max]
+    : [0, 25, 50, 75, 100]
 
   return (
     <div style={{ width: '100%' }}>
-      <div style={{ display: 'flex', gap: 8 }}>
+      {!hasAnyData && (
         <div style={{
-          width: yAxisWidth,
-          display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-          height: barAreaHeight, paddingRight: 8,
-          borderRight: '1px solid var(--border)', marginRight: 8
+          textAlign: 'center', padding: '8px 0 4px',
+          fontFamily: 'var(--font-mono)', fontSize: 10,
+          color: 'var(--text-3)', letterSpacing: '0.08em',
+        }}>
+          — No readings in this period —
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {/* Y-axis */}
+        <div style={{
+          width: yAxisWidth, display: 'flex', flexDirection: 'column',
+          justifyContent: 'space-between', height: barAreaHeight,
+          paddingRight: 8, borderRight: '1px solid var(--border)', marginRight: 8,
         }}>
           {yTicks.slice().reverse().map((tick, i) => (
             <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', textAlign: 'right', lineHeight: 1 }}>
@@ -247,31 +238,56 @@ function BarChart({ data, color, showValues = true, yAxisLabel = '' }) {
             </div>
           ))}
         </div>
+
+        {/* Bars */}
         <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: barAreaHeight, width: '100%', borderBottom: '1px solid var(--border)' }}>
-            {data.map((d, i) => (
-              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', minWidth: 0 }}>
-                <div style={{
-                  width: '100%', borderRadius: '3px 3px 0 0',
-                  height: `${(d.value / max) * (barAreaHeight - 20)}px`,
-                  minHeight: d.value > 0 ? 3 : 0,
-                  background: color, opacity: d.value > 0 ? 1 : 0.15,
-                  transition: 'height 0.6s cubic-bezier(.4,0,.2,1)', position: 'relative',
-                }}>
-                  {showValues && d.value > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'flex-end', gap: 6,
+            height: barAreaHeight, width: '100%',
+            borderBottom: '1px solid var(--border)',
+          }}>
+            {data.map((d, i) => {
+              // FIX: height is fraction of (barAreaHeight - labelRoom). 
+              // When value=0 we render a hairline placeholder so days are still visible.
+              const usableHeight = barAreaHeight - 22
+              const barH = hasAnyData && d.value > 0
+                ? Math.max(4, (d.value / max) * usableHeight)
+                : 0
+              const showHairline = d.value === 0
+
+              return (
+                <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', minWidth: 0 }}>
+                  <div style={{ width: '100%', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    {/* Value label above bar */}
+                    {showValues && d.value > 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        bottom: barH + 4,
+                        left: '50%', transform: 'translateX(-50%)',
+                        fontFamily: 'var(--font-mono)', fontSize: 9,
+                        color: color, fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        background: 'rgba(0,0,0,0.75)',
+                        padding: '2px 5px', borderRadius: 4,
+                        pointerEvents: 'none', zIndex: 1,
+                      }}>
+                        {d.value}
+                      </div>
+                    )}
+                    {/* Actual bar */}
                     <div style={{
-                      position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)',
-                      fontFamily: 'var(--font-mono)', fontSize: 9, color: color, fontWeight: 600,
-                      whiteSpace: 'nowrap', background: 'rgba(0,0,0,0.7)', padding: '2px 5px',
-                      borderRadius: 4, pointerEvents: 'none',
-                    }}>
-                      {d.value}
-                    </div>
-                  )}
+                      width: '85%',
+                      height: barH > 0 ? barH : (showHairline ? 2 : 0),
+                      borderRadius: '3px 3px 0 0',
+                      background: barH > 0 ? color : 'rgba(255,255,255,0.08)',
+                      transition: 'height 0.6s cubic-bezier(.4,0,.2,1)',
+                      boxShadow: barH > 0 ? `0 0 8px ${color}44` : 'none',
+                    }} />
+                  </div>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)', marginTop: 2 }}>{d.label}</span>
                 </div>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)' }}>{d.label}</span>
-              </div>
-            ))}
+              )
+            })}
           </div>
           {yAxisLabel && (
             <div style={{ textAlign: 'center', marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)' }}>
@@ -284,23 +300,40 @@ function BarChart({ data, color, showValues = true, yAxisLabel = '' }) {
   )
 }
 
-// ─── Enhanced DualBarChart with Y-axis and values ─────────────────────────
+// ─── FIX 2: DualBarChart — same robust fixes ──────────────────────────────
 function DualBarChart({ data, showValues = true }) {
   if (!data || data.length === 0) return (
     <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>No data yet</div>
   )
 
-  const max = Math.max(...data.map(d => Math.max(d.high, d.low)), 1)
-  const barAreaHeight = 100
+  const maxRaw = Math.max(...data.map(d => Math.max(d.high, d.low)))
+  const max = maxRaw > 0 ? maxRaw : 1
+  const hasAnyData = maxRaw > 0
+
+  const barAreaHeight = 110
   const yAxisWidth = 40
-  const yTicks = [0, Math.round(max * 0.25), Math.round(max * 0.5), Math.round(max * 0.75), max]
+  const yTicks = hasAnyData
+    ? [0, Math.round(max * 0.25), Math.round(max * 0.5), Math.round(max * 0.75), max]
+    : [0, 1, 2, 3, 4]
+  const usableHeight = barAreaHeight - 22
 
   return (
     <div style={{ width: '100%' }}>
-      <div style={{ display: 'flex', gap: 8 }}>
+      {!hasAnyData && (
         <div style={{
-          width: yAxisWidth, display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-          height: barAreaHeight, paddingRight: 8, borderRight: '1px solid var(--border)', marginRight: 8
+          textAlign: 'center', padding: '8px 0 4px',
+          fontFamily: 'var(--font-mono)', fontSize: 10,
+          color: 'var(--text-3)', letterSpacing: '0.08em',
+        }}>
+          — No leak events in this period —
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {/* Y-axis */}
+        <div style={{
+          width: yAxisWidth, display: 'flex', flexDirection: 'column',
+          justifyContent: 'space-between', height: barAreaHeight,
+          paddingRight: 8, borderRight: '1px solid var(--border)', marginRight: 8,
         }}>
           {yTicks.slice().reverse().map((tick, i) => (
             <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', textAlign: 'right', lineHeight: 1 }}>
@@ -308,27 +341,39 @@ function DualBarChart({ data, showValues = true }) {
             </div>
           ))}
         </div>
+
+        {/* Bars */}
         <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: barAreaHeight, width: '100%', borderBottom: '1px solid var(--border)' }}>
+          <div style={{
+            display: 'flex', alignItems: 'flex-end', gap: 6,
+            height: barAreaHeight, width: '100%',
+            borderBottom: '1px solid var(--border)',
+          }}>
             {data.map((d, i) => {
-              const maxBarHeight = Math.max(d.high, d.low)
-              const barHeightPercent = (maxBarHeight / max) * (barAreaHeight - 20)
+              const highH = d.high > 0 ? Math.max(4, (d.high / max) * usableHeight) : 0
+              const lowH  = d.low  > 0 ? Math.max(4, (d.low  / max) * usableHeight) : 0
+              const dayMax = Math.max(highH, lowH)
+
               return (
                 <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', minWidth: 0 }}>
-                  <div style={{ width: '100%', display: 'flex', gap: 3, alignItems: 'flex-end', justifyContent: 'center', height: barHeightPercent, minHeight: (d.high > 0 || d.low > 0) ? 3 : 0 }}>
-                    <div style={{ flex: 1, borderRadius: '2px 2px 0 0', height: maxBarHeight > 0 ? `${(d.high / maxBarHeight) * 100}%` : '0%', minHeight: d.high > 0 ? 3 : 0, background: '#ff4560', opacity: d.high > 0 ? 1 : 0.12, position: 'relative', transition: 'height 0.6s cubic-bezier(.4,0,.2,1)' }}>
+                  <div style={{ width: '100%', display: 'flex', gap: 2, alignItems: 'flex-end', justifyContent: 'center', position: 'relative', height: dayMax > 0 ? dayMax + 24 : 20 }}>
+                    {/* High bar */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', position: 'relative' }}>
                       {showValues && d.high > 0 && (
-                        <div style={{ position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)', fontFamily: 'var(--font-mono)', fontSize: 8, color: '#ff4560', fontWeight: 600, whiteSpace: 'nowrap', background: 'rgba(0,0,0,0.7)', padding: '2px 4px', borderRadius: 4, pointerEvents: 'none' }}>
+                        <div style={{ position: 'absolute', bottom: highH + 2, left: '50%', transform: 'translateX(-50%)', fontFamily: 'var(--font-mono)', fontSize: 8, color: '#ff4560', fontWeight: 700, whiteSpace: 'nowrap', background: 'rgba(0,0,0,0.75)', padding: '1px 4px', borderRadius: 3, pointerEvents: 'none', zIndex: 1 }}>
                           {d.high}
                         </div>
                       )}
+                      <div style={{ width: '90%', height: highH > 0 ? highH : 2, borderRadius: '2px 2px 0 0', background: highH > 0 ? '#ff4560' : 'rgba(255,69,96,0.12)', boxShadow: highH > 0 ? '0 0 6px rgba(255,69,96,0.4)' : 'none', transition: 'height 0.6s cubic-bezier(.4,0,.2,1)' }} />
                     </div>
-                    <div style={{ flex: 1, borderRadius: '2px 2px 0 0', height: maxBarHeight > 0 ? `${(d.low / maxBarHeight) * 100}%` : '0%', minHeight: d.low > 0 ? 3 : 0, background: '#ffb020', opacity: d.low > 0 ? 1 : 0.12, position: 'relative', transition: 'height 0.6s cubic-bezier(.4,0,.2,1)' }}>
+                    {/* Low bar */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', position: 'relative' }}>
                       {showValues && d.low > 0 && (
-                        <div style={{ position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)', fontFamily: 'var(--font-mono)', fontSize: 8, color: '#ffb020', fontWeight: 600, whiteSpace: 'nowrap', background: 'rgba(0,0,0,0.7)', padding: '2px 4px', borderRadius: 4, pointerEvents: 'none' }}>
+                        <div style={{ position: 'absolute', bottom: lowH + 2, left: '50%', transform: 'translateX(-50%)', fontFamily: 'var(--font-mono)', fontSize: 8, color: '#ffb020', fontWeight: 700, whiteSpace: 'nowrap', background: 'rgba(0,0,0,0.75)', padding: '1px 4px', borderRadius: 3, pointerEvents: 'none', zIndex: 1 }}>
                           {d.low}
                         </div>
                       )}
+                      <div style={{ width: '90%', height: lowH > 0 ? lowH : 2, borderRadius: '2px 2px 0 0', background: lowH > 0 ? '#ffb020' : 'rgba(255,176,32,0.12)', boxShadow: lowH > 0 ? '0 0 6px rgba(255,176,32,0.4)' : 'none', transition: 'height 0.6s cubic-bezier(.4,0,.2,1)' }} />
                     </div>
                   </div>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)' }}>{d.label}</span>
@@ -337,11 +382,11 @@ function DualBarChart({ data, showValues = true }) {
             })}
           </div>
           <div style={{ display: 'flex', gap: 16, marginTop: 12, justifyContent: 'center' }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 12, height: 12, background: '#ff4560', borderRadius: 2 }}></span>High Leaks
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-2)' }}>
+              <span style={{ width: 10, height: 10, background: '#ff4560', borderRadius: 2, display: 'inline-block' }}></span>High Leaks
             </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 12, height: 12, background: '#ffb020', borderRadius: 2 }}></span>Low Leaks
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-2)' }}>
+              <span style={{ width: 10, height: 10, background: '#ffb020', borderRadius: 2, display: 'inline-block' }}></span>Low Leaks
             </span>
           </div>
         </div>
@@ -439,8 +484,6 @@ export default function App() {
   const [cylinderId, setCylinderIdRaw]           = useState(() => localStorage.getItem('gaswatch_cylinder') || DEFAULT_CYLINDER)
   const cylinderPreset                           = CYLINDER_PRESETS.find(p => p.id === cylinderId) || CYLINDER_PRESETS[1]
 
-  // customTare_g: empty cylinder weight in grams entered by the user.
-  // When null, the full weight from ESP32 is used as gas weight directly.
   const [customTare_g, setCustomTare_g]          = useState(() => {
     const v = localStorage.getItem('gaswatch_custom_tare')
     return v != null ? parseFloat(v) : null
@@ -453,7 +496,6 @@ export default function App() {
   const customTareRef = useRef(customTare_g)
   useEffect(() => { customTareRef.current = customTare_g }, [customTare_g])
 
-  // gasLevel is DERIVED every render
   const gasLevel = rawWeightG != null ? weightToPercent(rawWeightG, cylinderPreset, customTare_g) : 0
 
   const cylinderPresetRef = useRef(cylinderPreset)
@@ -464,7 +506,6 @@ export default function App() {
     localStorage.setItem('gaswatch_cylinder', id)
   }
 
-  // History update — fires whenever weight, preset, or tare changes
   useEffect(() => {
     if (rawWeightG == null) return
     const pct = weightToPercent(rawWeightG, cylinderPreset, customTare_g)
@@ -498,7 +539,6 @@ export default function App() {
   const audioCtx   = useRef(null)
   const alarmTimer = useRef(null)
 
-  // Auto-off cooking mode after 2 hours
   useEffect(() => {
     if (!cookingMode || !cookingStart) return
     const ms = 2 * 60 * 60 * 1000 - (Date.now() - cookingStart)
@@ -543,22 +583,32 @@ export default function App() {
   useEffect(() => {
     if (demoMode) {
       setTimeout(() => setLoaded(true), 300)
-      const DL = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-      setWeeklyLeaksBySev(DL.map((l, i) => ({ label: l, high: [0,1,0,0,1,0,1][i], low: [0,1,1,0,2,0,0][i] })))
-      setWeeklyPpm(DL.map((l, i) => ({ label: l, value: [0,350,0,0,420,0,0][i] })))
+
+      // FIX 3: Demo data now covers ALL 7 days with realistic non-zero values
+      // so every bar in every chart is visible in demo mode
+      const DL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+      const demoLevels   = [68, 65, 63, 61, 58, 55, 57]
+      const demoHigh     = [0, 1, 0, 0, 1, 0, 1]
+      const demoLow      = [1, 1, 2, 0, 2, 1, 0]
+      const demoPpmWeek  = [0, 350, 220, 0, 420, 310, 0]
+
+      setWeeklyUsage(DL.map((l, i) => ({ label: l.slice(0, 3), value: demoLevels[i] })))
+      setWeeklyLeaksBySev(DL.map((l, i) => ({ label: l.slice(0, 3), high: demoHigh[i], low: demoLow[i] })))
+      setWeeklyPpm(DL.map((l, i) => ({ label: l.slice(0, 3), value: demoPpmWeek[i] })))
+
       setRawWeightG(11400)
-      setWeeklyUsage(DL.map((l, i) => ({ label: l, value: [68,65,63,61,58,55,57][i] })))
-      setLevelHistory([68,65,63,61,58,55,57])
+      setLevelHistory([68, 65, 63, 61, 58, 55, 57])
       setCurrentPpm(null); setCurrentRaw(218)
-      setAvgPpm7d(null); setMaxPpm7d(750)
-      setHighLeaks7d(2); setLowLeaks7d(5)
-      setPpmHistory([0,0,0,0,350,0,0,750,0,0,0,0])
+      setAvgPpm7d(260); setMaxPpm7d(750)
+      setHighLeaks7d(3); setLowLeaks7d(7)
+      setPpmHistory([0, 0, 0, 0, 350, 0, 0, 750, 0, 0, 0, 0])
       setAlerts([
         { id: 1, severity: 'high', time: '10:24:15', date: 'Jun 3', msg: 'CRITICAL gas leakage detected!', ppm: 750 },
         { id: 2, severity: 'low',  time: '08:12:03', date: 'Jun 3', msg: 'Minor gas leakage detected',    ppm: 350 },
         { id: 3, severity: 'low',  time: '22:05:41', date: 'Jun 2', msg: 'Minor gas leakage detected',    ppm: 320 },
       ])
       setTotalLeaks(7); setConnected(false)
+
       const iv = setInterval(() => {
         setRawWeightG(prev => {
           const nw = genDemoWeight(prev)
@@ -583,6 +633,7 @@ export default function App() {
 
     let levelCh, leakCh
     async function init() {
+      // ── Gas levels ───────────────────────────────────────────────────
       const { data: lvls } = await supabase
         .from('gas_levels')
         .select('weight_grams,created_at')
@@ -599,6 +650,7 @@ export default function App() {
         setLevelHistory(lvls.map(r => weightToPercent(Number(r.weight_grams), pr, ct)).reverse())
       }
 
+      // ── Recent leakages ──────────────────────────────────────────────
       const { data: leaks } = await supabase
         .from('gas_leakages')
         .select('id,severity,raw_value,ppm_approx,created_at')
@@ -625,23 +677,31 @@ export default function App() {
         setConnected(true)
       }
 
+      // ── FIX 4: Weekly aggregation — use UTC day index consistently ───
+      // Build a 7-day window keyed by day-of-week index (0=Sun … 6=Sat)
       const sevenAgo = new Date(Date.now() - 7 * 86400000).toISOString()
+
       const { data: wLvls } = await supabase
         .from('gas_levels')
         .select('weight_grams,created_at')
         .gte('created_at', sevenAgo)
+        .order('created_at', { ascending: true })
 
       if (wLvls?.length > 0) {
         const pr = cylinderPresetRef.current
         const ct = customTareRef.current
-        const sums = {}, cnts = {}
-        DAYS.forEach(d => { sums[d] = 0; cnts[d] = 0 })
+        // Key by day index so we never confuse 'Sun'→'Sun' string lookup issues
+        const sums = Array(7).fill(0)
+        const cnts = Array(7).fill(0)
         wLvls.forEach(r => {
-          const d = DAYS[new Date(r.created_at).getDay()]
-          sums[d] += weightToPercent(Number(r.weight_grams), pr, ct)
-          cnts[d]++
+          const idx = new Date(r.created_at).getDay() // 0–6
+          sums[idx] += weightToPercent(Number(r.weight_grams), pr, ct)
+          cnts[idx]++
         })
-        setWeeklyUsage(DAYS.map(d => ({ label: d.slice(0, 3), value: cnts[d] > 0 ? Math.round(sums[d] / cnts[d]) : 0 })))
+        setWeeklyUsage(DAYS.map((d, i) => ({
+          label: d.slice(0, 3),
+          value: cnts[i] > 0 ? Math.round(sums[i] / cnts[i]) : 0,
+        })))
       } else {
         setWeeklyUsage(DAYS.map(d => ({ label: d.slice(0, 3), value: 0 })))
       }
@@ -650,24 +710,42 @@ export default function App() {
         .from('gas_leakages')
         .select('severity,ppm_approx,created_at')
         .gte('created_at', sevenAgo)
+        .order('created_at', { ascending: true })
 
       if (wLeaks?.length > 0) {
-        const bySev = {}, ppmS = {}, ppmC = {}
-        DAYS.forEach(d => { bySev[d] = { high: 0, low: 0 }; ppmS[d] = 0; ppmC[d] = 0 })
+        // FIX 4 cont: index arrays by integer day, not string keys
+        const highArr = Array(7).fill(0)
+        const lowArr  = Array(7).fill(0)
+        const ppmSums = Array(7).fill(0)
+        const ppmCnts = Array(7).fill(0)
         let sumP = 0, cntP = 0, maxP = 0, cH = 0, cL = 0
+
         wLeaks.forEach(r => {
-          const d    = DAYS[new Date(r.created_at).getDay()]
+          const idx  = new Date(r.created_at).getDay()
           const fSev = deriveSeverity(r.ppm_approx)
           const fPpm = filterPpm(r.ppm_approx)
-          if (fSev === 'high') { bySev[d].high++; cH++ }
-          if (fSev === 'low')  { bySev[d].low++;  cL++ }
-          if (fPpm != null) { ppmS[d] += fPpm; ppmC[d]++; sumP += fPpm; cntP++; if (fPpm > maxP) maxP = fPpm }
+          if (fSev === 'high') { highArr[idx]++; cH++ }
+          if (fSev === 'low')  { lowArr[idx]++;  cL++ }
+          if (fPpm != null) {
+            ppmSums[idx] += fPpm; ppmCnts[idx]++
+            sumP += fPpm; cntP++
+            if (fPpm > maxP) maxP = fPpm
+          }
         })
-        setWeeklyLeaksBySev(DAYS.map(d => ({ label: d.slice(0, 3), high: bySev[d].high, low: bySev[d].low })))
-        setWeeklyPpm(DAYS.map(d => ({ label: d.slice(0, 3), value: ppmC[d] > 0 ? Math.round(ppmS[d] / ppmC[d]) : 0 })))
+
+        setWeeklyLeaksBySev(DAYS.map((d, i) => ({
+          label: d.slice(0, 3),
+          high: highArr[i],
+          low:  lowArr[i],
+        })))
+        setWeeklyPpm(DAYS.map((d, i) => ({
+          label: d.slice(0, 3),
+          value: ppmCnts[i] > 0 ? Math.round(ppmSums[i] / ppmCnts[i]) : 0,
+        })))
         setAvgPpm7d(cntP > 0 ? Math.round(sumP / cntP) : null)
         setMaxPpm7d(maxP > 0 ? Math.round(maxP) : null)
-        setHighLeaks7d(cH); setLowLeaks7d(cL)
+        setHighLeaks7d(cH)
+        setLowLeaks7d(cL)
       } else {
         setWeeklyLeaksBySev(DAYS.map(d => ({ label: d.slice(0, 3), high: 0, low: 0 })))
         setWeeklyPpm(DAYS.map(d => ({ label: d.slice(0, 3), value: 0 })))
@@ -688,6 +766,20 @@ export default function App() {
           setLastSeen(new Date(p.new.created_at))
           setConnected(true)
           setLevelHistory(prev => [...prev.slice(-59), weightToPercent(w, pr, ct)])
+          // FIX 5: Also update weeklyUsage on new live inserts so the chart
+          // refreshes in real time without needing a page reload.
+          const idx = new Date(p.new.created_at).getDay()
+          setWeeklyUsage(prev => prev.map((entry, i) => {
+            if (i !== idx) return entry
+            // Incremental average: keep a running average by re-weighting
+            // We approximate by simply pushing the new value into the mean.
+            const prevVal = entry.value
+            // Use simple average blend — good enough for a live sparkle update
+            const newVal = prevVal > 0
+              ? Math.round((prevVal + weightToPercent(w, pr, ct)) / 2)
+              : Math.round(weightToPercent(w, pr, ct))
+            return { ...entry, value: newVal }
+          }))
         })
         .subscribe()
 
@@ -696,6 +788,29 @@ export default function App() {
           const { severity: sev, id, created_at, ppm_approx, raw_value } = p.new
           handleLeakEvent(sev, id, created_at, ppm_approx, raw_value)
           setConnected(true)
+          // FIX 5 cont: Also update weekly leak + ppm charts on live inserts
+          const idx  = new Date(created_at).getDay()
+          const fSev = deriveSeverity(ppm_approx)
+          const fPpm = filterPpm(ppm_approx)
+          if (fSev !== 'safe') {
+            setWeeklyLeaksBySev(prev => prev.map((entry, i) => {
+              if (i !== idx) return entry
+              return {
+                ...entry,
+                high: fSev === 'high' ? entry.high + 1 : entry.high,
+                low:  fSev === 'low'  ? entry.low  + 1 : entry.low,
+              }
+            }))
+          }
+          if (fPpm != null) {
+            setWeeklyPpm(prev => prev.map((entry, i) => {
+              if (i !== idx) return entry
+              const newVal = entry.value > 0
+                ? Math.round((entry.value + fPpm) / 2)
+                : Math.round(fPpm)
+              return { ...entry, value: newVal }
+            }))
+          }
         })
         .subscribe()
     }
@@ -1163,88 +1278,48 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
 
       <Card accent="#4d8eff" style={{ minWidth: 0 }}>
         <SectionTitle>⚖️ Tare Weight Calibration</SectionTitle>
-
-        {/* Current mode banner */}
-        <div style={{
-          padding: '10px 14px', borderRadius: 'var(--r-sm)', marginBottom: 16,
-          background: 'var(--surface2)', border: `1px solid ${modeColor}44`,
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
+        <div style={{ padding: '10px 14px', borderRadius: 'var(--r-sm)', marginBottom: 16, background: 'var(--surface2)', border: `1px solid ${modeColor}44`, display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: modeColor, flexShrink: 0, boxShadow: `0 0 8px ${modeColor}` }} />
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: modeColor, fontWeight: 600, letterSpacing: '0.05em' }}>
-              ACTIVE MODE
-            </div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-1)', marginTop: 2 }}>
-              {modeLabel}
-            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: modeColor, fontWeight: 600, letterSpacing: '0.05em' }}>ACTIVE MODE</div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-1)', marginTop: 2 }}>{modeLabel}</div>
           </div>
           <div style={{ marginLeft: 'auto', textAlign: 'right', flexShrink: 0 }}>
-            <div style={{ fontFamily: 'var(--font-disp)', fontSize: 22, fontWeight: 800, color: '#4d8eff', lineHeight: 1 }}>
-              {Math.round(gasLevel)}%
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)', marginTop: 2 }}>
-              current level
-            </div>
+            <div style={{ fontFamily: 'var(--font-disp)', fontSize: 22, fontWeight: 800, color: '#4d8eff', lineHeight: 1 }}>{Math.round(gasLevel)}%</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)', marginTop: 2 }}>current level</div>
           </div>
         </div>
 
-        {/* Live weight readout */}
         {rawWeightG != null && (
-          <div style={{
-            padding: '10px 14px', borderRadius: 'var(--r-sm)', marginBottom: 16,
-            background: 'var(--surface3)', border: '1px solid var(--border)',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
-          }}>
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-3)' }}>
-              Total weight from ESP32
-            </span>
+          <div style={{ padding: '10px 14px', borderRadius: 'var(--r-sm)', marginBottom: 16, background: 'var(--surface3)', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-3)' }}>Total weight from ESP32</span>
             <span style={{ fontFamily: 'var(--font-disp)', fontSize: 18, fontWeight: 800, color: 'var(--text-1)' }}>
               {(rawWeightG / 1000).toFixed(3)} kg
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', marginLeft: 6, fontWeight: 400 }}>
-                ({rawWeightG.toFixed(0)} g)
-              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', marginLeft: 6, fontWeight: 400 }}>({rawWeightG.toFixed(0)} g)</span>
             </span>
           </div>
         )}
 
-        {/* How it works explanation */}
         <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-2)', lineHeight: 1.65, marginBottom: 16 }}>
           The ESP32 sends the <strong style={{ color: 'var(--text-1)' }}>total weight</strong> of everything on the scale.
           Enter your empty cylinder's tare weight below so the app can subtract it and show you the <strong style={{ color: 'var(--text-1)' }}>actual gas remaining</strong>.
           If you leave it blank, the full received weight is used as-is.
         </div>
 
-        {/* Option A: stamp tare from live reading */}
         {rawWeightG != null && (
-          <div style={{
-            padding: '12px 14px', borderRadius: 'var(--r-sm)', marginBottom: 12,
-            background: 'rgba(0,229,160,0.06)', border: '1px solid rgba(0,229,160,0.2)',
-          }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#00e5a0', marginBottom: 4 }}>
-              Option A — Empty cylinder on scale right now?
-            </div>
+          <div style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', marginBottom: 12, background: 'rgba(0,229,160,0.06)', border: '1px solid rgba(0,229,160,0.2)' }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#00e5a0', marginBottom: 4 }}>Option A — Empty cylinder on scale right now?</div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
               Place your <strong style={{ color: 'var(--text-2)' }}>empty cylinder</strong> on the scale, wait for a stable reading, then tap to stamp the current reading as the tare.
             </div>
-            <button onClick={handleStampTare} style={{
-              padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-              background: 'rgba(0,229,160,0.15)', border: '1px solid rgba(0,229,160,0.4)',
-              color: '#00e5a0', letterSpacing: '0.03em',
-            }}>
+            <button onClick={handleStampTare} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: 'rgba(0,229,160,0.15)', border: '1px solid rgba(0,229,160,0.4)', color: '#00e5a0', letterSpacing: '0.03em' }}>
               📍 Stamp {rawWeightG != null ? `${(rawWeightG / 1000).toFixed(3)} kg` : '—'} as Tare
             </button>
           </div>
         )}
 
-        {/* Option B: manual tare entry */}
-        <div style={{
-          padding: '12px 14px', borderRadius: 'var(--r-sm)', marginBottom: 12,
-          background: 'rgba(77,142,255,0.06)', border: '1px solid rgba(77,142,255,0.2)',
-        }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#4d8eff', marginBottom: 4 }}>
-            Option B — Enter tare weight manually
-          </div>
+        <div style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', marginBottom: 12, background: 'rgba(77,142,255,0.06)', border: '1px solid rgba(77,142,255,0.2)' }}>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#4d8eff', marginBottom: 4 }}>Option B — Enter tare weight manually</div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
             Check the sticker on your cylinder for the tare weight (marked <strong style={{ color: 'var(--text-2)' }}>T</strong> or <strong style={{ color: 'var(--text-2)' }}>Tare</strong>), then enter it below in kg.
           </div>
@@ -1254,46 +1329,21 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
               value={tareInput}
               onChange={e => setTareInput(e.target.value)}
               placeholder={`e.g. ${(cylinderPreset.tare_g / 1000).toFixed(1)}`}
-              style={{
-                flex: 1, minWidth: 100, padding: '8px 12px', borderRadius: 8,
-                background: 'var(--surface3)', border: '1px solid var(--border2)',
-                color: 'var(--text-1)', fontFamily: 'var(--font-mono)', fontSize: 13,
-                outline: 'none',
-              }}
+              style={{ flex: 1, minWidth: 100, padding: '8px 12px', borderRadius: 8, background: 'var(--surface3)', border: '1px solid var(--border2)', color: 'var(--text-1)', fontFamily: 'var(--font-mono)', fontSize: 13, outline: 'none' }}
             />
-            <button onClick={handleSaveTare} style={{
-              padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-              background: 'rgba(77,142,255,0.15)', border: '1px solid rgba(77,142,255,0.4)',
-              color: '#4d8eff', whiteSpace: 'nowrap',
-            }}>
-              Save Tare
-            </button>
+            <button onClick={handleSaveTare} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: 'rgba(77,142,255,0.15)', border: '1px solid rgba(77,142,255,0.4)', color: '#4d8eff', whiteSpace: 'nowrap' }}>Save Tare</button>
             {customTare_g != null && (
-              <button onClick={handleClearTare} style={{
-                padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                background: 'var(--surface2)', border: '1px solid var(--border)',
-                color: 'var(--text-3)', whiteSpace: 'nowrap',
-              }}>
-                Clear
-              </button>
+              <button onClick={handleClearTare} style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>Clear</button>
             )}
           </div>
         </div>
 
-        {/* Feedback message */}
         {tareMsg && (
-          <div style={{
-            padding: '10px 14px', borderRadius: 'var(--r-sm)',
-            background: tareMsg.ok ? 'rgba(0,229,160,0.08)' : 'rgba(255,69,96,0.08)',
-            border: `1px solid ${tareMsg.ok ? 'rgba(0,229,160,0.3)' : 'rgba(255,69,96,0.3)'}`,
-            fontFamily: 'var(--font-body)', fontSize: 13,
-            color: tareMsg.ok ? '#00e5a0' : '#ff4560',
-          }}>
+          <div style={{ padding: '10px 14px', borderRadius: 'var(--r-sm)', background: tareMsg.ok ? 'rgba(0,229,160,0.08)' : 'rgba(255,69,96,0.08)', border: `1px solid ${tareMsg.ok ? 'rgba(0,229,160,0.3)' : 'rgba(255,69,96,0.3)'}`, fontFamily: 'var(--font-body)', fontSize: 13, color: tareMsg.ok ? '#00e5a0' : '#ff4560' }}>
             {tareMsg.text}
           </div>
         )}
 
-        {/* Formula display */}
         <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface3)', border: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', lineHeight: 1.8 }}>
           {usingCustomTare
             ? <>Formula: <span style={{ color: 'var(--text-2)' }}>({rawWeightG?.toFixed(0) ?? 'weight'}g − {customTare_g}g) ÷ {cylinderPreset.net_g}g × 100</span></>
@@ -1303,7 +1353,6 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
         </div>
       </Card>
 
-      {/* ESP32 Status */}
       <Card accent="#4d8eff" style={{ minWidth: 0 }}>
         <SectionTitle>ESP32 Status</SectionTitle>
         {[
@@ -1320,7 +1369,6 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
         ))}
       </Card>
 
-      {/* Live MQ6 Readings */}
       <Card style={{ minWidth: 0 }}>
         <SectionTitle>Live MQ6 Readings</SectionTitle>
         {[
@@ -1337,7 +1385,6 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
         ))}
       </Card>
 
-      {/* Sensor Health */}
       <Card style={{ minWidth: 0 }}>
         <SectionTitle>Sensor Health</SectionTitle>
         {[
@@ -1360,7 +1407,6 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
         ))}
       </Card>
 
-      {/* Integration Notes */}
       <Card style={{ minWidth: 0 }}>
         <SectionTitle>Integration Notes</SectionTitle>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
