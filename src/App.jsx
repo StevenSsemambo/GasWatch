@@ -1238,8 +1238,8 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
 
   const usingCustomTare = customTare_g != null
   const modeLabel = usingCustomTare
-    ? `Custom tare: ${(customTare_g / 1000).toFixed(2)} kg — gas = total − tare`
-    : 'No tare set — total weight used as gas weight'
+    ? `Cylinder tare: ${(customTare_g / 1000).toFixed(2)} kg — gas = (received − tare) ÷ net × 100`
+    : 'No cylinder tare set — received weight used as gas weight (inflated %)'
   const modeColor = usingCustomTare ? '#00e5a0' : '#ffb020'
 
   const handleSaveTare = () => {
@@ -1249,23 +1249,25 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
       return
     }
     setCustomTare(kg * 1000)
-    setTareMsg({ text: `✓ Tare set to ${kg.toFixed(2)} kg — gas % updated`, ok: true })
+    setTareMsg({ text: `✓ Cylinder tare set to ${kg.toFixed(2)} kg — gas % recalculated`, ok: true })
     setTimeout(() => setTareMsg(null), 4000)
   }
 
   const handleClearTare = () => {
     setCustomTare(null)
     setTareInput('')
-    setTareMsg({ text: 'Tare cleared — total weight now used as gas weight', ok: true })
+    setTareMsg({ text: 'Cylinder tare cleared — received weight used as gas weight', ok: true })
     setTimeout(() => setTareMsg(null), 3000)
   }
 
   const handleStampTare = () => {
     if (rawWeightG == null) return
+    // Stamp current reading as the empty cylinder weight
+    // Only do this when the cylinder is EMPTY (no gas inside)
     const kg = rawWeightG / 1000
     setTareInput(kg.toFixed(3))
     setCustomTare(rawWeightG)
-    setTareMsg({ text: `✓ Tare stamped at ${kg.toFixed(3)} kg (current reading)`, ok: true })
+    setTareMsg({ text: `✓ Cylinder tare stamped at ${kg.toFixed(3)} kg`, ok: true })
     setTimeout(() => setTareMsg(null), 4000)
   }
 
@@ -1277,51 +1279,89 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
       </Card>
 
       <Card accent="#4d8eff" style={{ minWidth: 0 }}>
-        <SectionTitle>⚖️ Tare Weight Calibration</SectionTitle>
+        <SectionTitle>⚖️ Cylinder Tare Weight</SectionTitle>
+
+        {/* How it works explanation */}
+        <div style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', marginBottom: 14, background: 'var(--surface2)', border: '1px solid var(--border)', fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7 }}>
+          <strong style={{ color: 'var(--text-1)' }}>How it works:</strong>
+          <br />
+          The ESP32 already removes the board weight automatically on boot.
+          What it sends here is <strong style={{ color: 'var(--text-1)' }}>cylinder + gas weight</strong>.
+          <br /><br />
+          To calculate accurate gas percentage, enter the weight of your
+          <strong style={{ color: 'var(--text-1)' }}> empty cylinder</strong> (no gas inside).
+          This is usually printed on the cylinder body as <strong style={{ color: 'var(--text-1)' }}>T</strong> or <strong style={{ color: 'var(--text-1)' }}>Tare</strong>.
+        </div>
+
+        {/* Active mode indicator */}
         <div style={{ padding: '10px 14px', borderRadius: 'var(--r-sm)', marginBottom: 16, background: 'var(--surface2)', border: `1px solid ${modeColor}44`, display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: modeColor, flexShrink: 0, boxShadow: `0 0 8px ${modeColor}` }} />
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: modeColor, fontWeight: 600, letterSpacing: '0.05em' }}>ACTIVE MODE</div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-1)', marginTop: 2 }}>{modeLabel}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: modeColor, fontWeight: 600, letterSpacing: '0.05em' }}>
+              {usingCustomTare ? 'CYLINDER TARE ACTIVE' : 'NO TARE SET'}
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>{modeLabel}</div>
           </div>
           <div style={{ marginLeft: 'auto', textAlign: 'right', flexShrink: 0 }}>
             <div style={{ fontFamily: 'var(--font-disp)', fontSize: 22, fontWeight: 800, color: '#4d8eff', lineHeight: 1 }}>{Math.round(gasLevel)}%</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)', marginTop: 2 }}>current level</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-3)', marginTop: 2 }}>gas level</div>
           </div>
         </div>
 
+        {/* Current weight display */}
         {rawWeightG != null && (
-          <div style={{ padding: '10px 14px', borderRadius: 'var(--r-sm)', marginBottom: 16, background: 'var(--surface3)', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-3)' }}>Total weight from ESP32</span>
-            <span style={{ fontFamily: 'var(--font-disp)', fontSize: 18, fontWeight: 800, color: 'var(--text-1)' }}>
-              {(rawWeightG / 1000).toFixed(3)} kg
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', marginLeft: 6, fontWeight: 400 }}>({rawWeightG.toFixed(0)} g)</span>
-            </span>
+          <div style={{ padding: '10px 14px', borderRadius: 'var(--r-sm)', marginBottom: 14, background: 'var(--surface3)', border: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-3)', lineHeight: 2 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <span>Received from ESP32</span>
+              <span style={{ color: 'var(--text-1)', fontWeight: 600 }}>{(rawWeightG / 1000).toFixed(3)} kg ({rawWeightG.toFixed(0)} g)</span>
+            </div>
+            {usingCustomTare && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                  <span>Cylinder tare (empty)</span>
+                  <span style={{ color: '#ffb020' }}>− {(customTare_g / 1000).toFixed(3)} kg</span>
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 4, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                  <span>Gas remaining</span>
+                  <span style={{ color: '#00e5a0', fontWeight: 700 }}>
+                    {Math.max(0, rawWeightG - customTare_g).toFixed(0)} g
+                    ({Math.round(gasLevel)}%)
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         )}
 
-        <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-2)', lineHeight: 1.65, marginBottom: 16 }}>
-          The ESP32 sends the <strong style={{ color: 'var(--text-1)' }}>total weight</strong> of everything on the scale.
-          Enter your empty cylinder's tare weight below so the app can subtract it and show you the <strong style={{ color: 'var(--text-1)' }}>actual gas remaining</strong>.
-          If you leave it blank, the full received weight is used as-is.
-        </div>
-
+        {/* Option A — Stamp current reading */}
         {rawWeightG != null && (
           <div style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', marginBottom: 12, background: 'rgba(0,229,160,0.06)', border: '1px solid rgba(0,229,160,0.2)' }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#00e5a0', marginBottom: 4 }}>Option A — Empty cylinder on scale right now?</div>
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
-              Place your <strong style={{ color: 'var(--text-2)' }}>empty cylinder</strong> on the scale, wait for a stable reading, then tap to stamp the current reading as the tare.
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#00e5a0', marginBottom: 4 }}>
+              Option A — Empty cylinder on scale right now?
             </div>
-            <button onClick={handleStampTare} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: 'rgba(0,229,160,0.15)', border: '1px solid rgba(0,229,160,0.4)', color: '#00e5a0', letterSpacing: '0.03em' }}>
-              📍 Stamp {rawWeightG != null ? `${(rawWeightG / 1000).toFixed(3)} kg` : '—'} as Tare
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
+              Place your <strong style={{ color: 'var(--text-2)' }}>empty cylinder</strong> (no gas) on the scale,
+              wait for a stable reading, then tap to use the current reading as the tare.
+            </div>
+            <button onClick={handleStampTare} style={{
+              padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+              background: 'rgba(0,229,160,0.15)', border: '1px solid rgba(0,229,160,0.4)',
+              color: '#00e5a0', letterSpacing: '0.03em'
+            }}>
+              📍 Stamp {rawWeightG != null ? `${(rawWeightG / 1000).toFixed(3)} kg` : '—'} as Cylinder Tare
             </button>
           </div>
         )}
 
+        {/* Option B — Manual entry */}
         <div style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', marginBottom: 12, background: 'rgba(77,142,255,0.06)', border: '1px solid rgba(77,142,255,0.2)' }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#4d8eff', marginBottom: 4 }}>Option B — Enter tare weight manually</div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: '#4d8eff', marginBottom: 4 }}>
+            Option B — Enter cylinder tare manually
+          </div>
           <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
-            Check the sticker on your cylinder for the tare weight (marked <strong style={{ color: 'var(--text-2)' }}>T</strong> or <strong style={{ color: 'var(--text-2)' }}>Tare</strong>), then enter it below in kg.
+            Check the sticker on your empty cylinder for the tare weight
+            (marked <strong style={{ color: 'var(--text-2)' }}>T</strong> or <strong style={{ color: 'var(--text-2)' }}>Tare</strong>).
+            Enter it below in kg. For a 6kg cylinder this is typically <strong style={{ color: 'var(--text-2)' }}>8.0 kg</strong>.
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <input
@@ -1329,25 +1369,50 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
               value={tareInput}
               onChange={e => setTareInput(e.target.value)}
               placeholder={`e.g. ${(cylinderPreset.tare_g / 1000).toFixed(1)}`}
-              style={{ flex: 1, minWidth: 100, padding: '8px 12px', borderRadius: 8, background: 'var(--surface3)', border: '1px solid var(--border2)', color: 'var(--text-1)', fontFamily: 'var(--font-mono)', fontSize: 13, outline: 'none' }}
+              style={{
+                flex: 1, minWidth: 100, padding: '8px 12px', borderRadius: 8,
+                background: 'var(--surface3)', border: '1px solid var(--border2)',
+                color: 'var(--text-1)', fontFamily: 'var(--font-mono)', fontSize: 13, outline: 'none'
+              }}
             />
-            <button onClick={handleSaveTare} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: 'rgba(77,142,255,0.15)', border: '1px solid rgba(77,142,255,0.4)', color: '#4d8eff', whiteSpace: 'nowrap' }}>Save Tare</button>
+            <button onClick={handleSaveTare} style={{
+              padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+              background: 'rgba(77,142,255,0.15)', border: '1px solid rgba(77,142,255,0.4)',
+              color: '#4d8eff', whiteSpace: 'nowrap'
+            }}>Save Tare</button>
             {customTare_g != null && (
-              <button onClick={handleClearTare} style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>Clear</button>
+              <button onClick={handleClearTare} style={{
+                padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                background: 'var(--surface2)', border: '1px solid var(--border)',
+                color: 'var(--text-3)', whiteSpace: 'nowrap'
+              }}>Clear</button>
             )}
           </div>
         </div>
 
+        {/* Feedback message */}
         {tareMsg && (
-          <div style={{ padding: '10px 14px', borderRadius: 'var(--r-sm)', background: tareMsg.ok ? 'rgba(0,229,160,0.08)' : 'rgba(255,69,96,0.08)', border: `1px solid ${tareMsg.ok ? 'rgba(0,229,160,0.3)' : 'rgba(255,69,96,0.3)'}`, fontFamily: 'var(--font-body)', fontSize: 13, color: tareMsg.ok ? '#00e5a0' : '#ff4560' }}>
+          <div style={{
+            padding: '10px 14px', borderRadius: 'var(--r-sm)',
+            background: tareMsg.ok ? 'rgba(0,229,160,0.08)' : 'rgba(255,69,96,0.08)',
+            border: `1px solid ${tareMsg.ok ? 'rgba(0,229,160,0.3)' : 'rgba(255,69,96,0.3)'}`,
+            fontFamily: 'var(--font-body)', fontSize: 13,
+            color: tareMsg.ok ? '#00e5a0' : '#ff4560'
+          }}>
             {tareMsg.text}
           </div>
         )}
 
+        {/* Formula */}
         <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface3)', border: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', lineHeight: 1.8 }}>
           {usingCustomTare
-            ? <>Formula: <span style={{ color: 'var(--text-2)' }}>({rawWeightG?.toFixed(0) ?? 'weight'}g − {customTare_g}g) ÷ {cylinderPreset.net_g}g × 100</span></>
-            : <>Formula: <span style={{ color: 'var(--text-2)' }}>{rawWeightG?.toFixed(0) ?? 'weight'}g ÷ {cylinderPreset.net_g}g × 100</span> <span style={{ color: '#ffb020' }}>(no tare set)</span></>
+            ? <>Formula: <span style={{ color: 'var(--text-2)' }}>
+                ({rawWeightG?.toFixed(0) ?? 'weight'}g − {customTare_g}g) ÷ {cylinderPreset.net_g}g × 100
+              </span></>
+            : <>Formula: <span style={{ color: 'var(--text-2)' }}>
+                {rawWeightG?.toFixed(0) ?? 'weight'}g ÷ {cylinderPreset.net_g}g × 100
+              </span>
+              <span style={{ color: '#ffb020' }}> (set tare for accurate %)</span></>
           }
           {' '}· Clamped 0–100%
         </div>
@@ -1356,11 +1421,13 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
       <Card accent="#4d8eff" style={{ minWidth: 0 }}>
         <SectionTitle>ESP32 Status</SectionTitle>
         {[
-          { k: 'Connection', v: connected ? 'Online' : demoMode ? 'Demo Mode' : 'Offline', col: connected ? '#00e5a0' : demoMode ? '#ffb020' : '#ff4560' },
-          { k: 'Last Data',  v: lastSeen.toLocaleTimeString(), col: null },
-          { k: 'Protocol',   v: 'HTTP POST → Supabase', col: null },
-          { k: 'Send Rate',  v: 'Every 5 seconds', col: null },
-          { k: 'Firmware',   v: 'GasWatch v2.2.0', col: '#4d8eff' },
+          { k: 'Connection',    v: connected ? 'Online' : demoMode ? 'Demo Mode' : 'Offline', col: connected ? '#00e5a0' : demoMode ? '#ffb020' : '#ff4560' },
+          { k: 'Last Data',     v: lastSeen.toLocaleTimeString(), col: null },
+          { k: 'Protocol',      v: 'HTTP POST → Supabase', col: null },
+          { k: 'Send Rate',     v: 'On change (≥50g)', col: null },
+          { k: 'Board Tare',    v: 'Auto on boot (ESP32)', col: '#00e5a0' },
+          { k: 'Cylinder Tare', v: usingCustomTare ? `${(customTare_g/1000).toFixed(2)} kg (app)` : 'Not set', col: usingCustomTare ? '#00e5a0' : '#ffb020' },
+          { k: 'Firmware',      v: 'GasWatch v2.3.0', col: '#4d8eff' },
         ].map((r, i, arr) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none', gap: 12, flexWrap: 'wrap' }}>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-3)', flexShrink: 0 }}>{r.k}</span>
@@ -1411,9 +1478,10 @@ function DeviceTab({ cylinderId, setCylinderId, connected, demoMode, lastSeen, d
         <SectionTitle>Integration Notes</SectionTitle>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[
-            { icon: '🔗', title: 'ESP32 WiFi',      desc: 'Set WIFI_SSID + WIFI_PASSWORD in firmware.' },
-            { icon: '⚖️', title: 'HX711 Load Cell', desc: 'Posts total weight every 5s. Set your tare in the calibration card above so the app calculates gas % correctly.' },
-            { icon: '📊', title: 'MQ6 Table',        desc: 'Posts severity, raw_value, ppm_approx. Readings below 300 ppm are suppressed.' },
+            { icon: '🔗', title: 'ESP32 WiFi',       desc: 'Configured via GasMonitor-Setup hotspot on first boot.' },
+            { icon: '⚖️', title: 'Board Tare',        desc: 'Handled automatically by ESP32 on every boot using scale.tare(). Board weight is invisible to the app.' },
+            { icon: '🪣', title: 'Cylinder Tare',     desc: 'Set above in the app. Subtracts the empty cylinder weight from the received value so the % shows pure gas remaining.' },
+            { icon: '📊', title: 'MQ6 Gas Sensor',   desc: 'Posts severity, raw_value, ppm_approx every 10 seconds. Readings below 300 ppm are shown as safe.' },
             { icon: '📡', title: 'Realtime',          desc: 'Enable Realtime on both tables in Supabase → Database → Replication.' },
           ].map((c, i) => (
             <div key={i} style={{ padding: '12px', background: 'var(--surface2)', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
