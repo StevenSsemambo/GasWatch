@@ -11,7 +11,6 @@ export const CYLINDER_PRESETS = [
 const DEFAULT_CYLINDER = '6kg'
 
 // ─── Rolling 7-day window helper ──────────────────────────────────────────
-// Returns array of 7 objects [{label, dateStr}, ...] oldest→newest
 const getRolling7Days = () =>
   Array.from({ length: 7 }, (_, i) => {
     const d = new Date()
@@ -154,6 +153,150 @@ function SectionTitle({ children, style }) {
       color: 'var(--text-3)', letterSpacing: '0.14em', textTransform: 'uppercase',
       marginBottom: 14, ...style
     }}>{children}</div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SAFETY RECOMMENDATION POPUP
+// ══════════════════════════════════════════════════════════════════════════
+function SafetyPopup({ severity, ppm, onDismiss }) {
+  const isHigh = severity === 'high'
+  const isLow  = severity === 'low'
+  if (!isHigh && !isLow) return null
+
+  const col    = isHigh ? C.high : C.low
+  const rules  = getRecommendations(severity, 100, ppm)
+  const title  = isHigh ? '🚨 CRITICAL GAS LEAK DETECTED' : '⚠️ LOW-LEVEL GAS LEAK DETECTED'
+  const sub    = isHigh
+    ? `Extremely dangerous — immediate action required${ppm ? ` · ~${Math.round(ppm)} ppm` : ''}`
+    : `Minor leakage detected${ppm ? ` · ~${Math.round(ppm)} ppm` : ''} — take precautions`
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={isHigh ? undefined : onDismiss}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 900,
+          background: isHigh
+            ? 'rgba(255,0,30,0.18)'
+            : 'rgba(0,0,0,0.55)',
+          backdropFilter: 'blur(3px)',
+          animation: 'fadeIn 0.25s ease',
+        }}
+      />
+
+      {/* Modal */}
+      <div style={{
+        position: 'fixed', left: '50%', top: '50%',
+        transform: 'translate(-50%, -50%)',
+        zIndex: 910, width: 'min(92vw, 420px)',
+        background: isHigh ? '#0d0608' : 'var(--surface)',
+        border: `1.5px solid ${col.main}55`,
+        borderRadius: 16,
+        boxShadow: `0 0 60px ${col.main}44, 0 24px 60px rgba(0,0,0,0.7)`,
+        overflow: 'hidden',
+        animation: 'popIn 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+      }}>
+
+        {/* Header stripe */}
+        <div style={{
+          background: isHigh
+            ? 'linear-gradient(135deg, rgba(255,69,96,0.22), rgba(255,0,30,0.10))'
+            : 'linear-gradient(135deg, rgba(255,176,32,0.18), rgba(255,176,32,0.06))',
+          borderBottom: `1px solid ${col.main}33`,
+          padding: '20px 20px 16px',
+          animation: isHigh ? 'shimmer 1.2s ease infinite' : undefined,
+        }}>
+          <div style={{
+            fontFamily: 'var(--font-disp)', fontSize: isHigh ? 15 : 13,
+            fontWeight: 800, color: col.main,
+            letterSpacing: isHigh ? '0.03em' : '0.01em',
+            lineHeight: 1.3, marginBottom: 6,
+          }}>
+            {title}
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10,
+            color: isHigh ? 'rgba(255,69,96,0.8)' : 'rgba(255,176,32,0.75)',
+            letterSpacing: '0.05em',
+          }}>
+            {sub}
+          </div>
+        </div>
+
+        {/* Recommendations list */}
+        <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {rules.map((r, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10,
+              padding: '10px 12px', borderRadius: 10,
+              background: r.urgent ? col.dim : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${r.urgent ? col.border : 'rgba(255,255,255,0.06)'}`,
+            }}>
+              <span style={{ fontSize: 15, flexShrink: 0, marginTop: 1 }}>{r.icon}</span>
+              <span style={{
+                fontFamily: 'var(--font-body)', fontSize: 13, lineHeight: 1.5,
+                color: r.urgent ? col.main : 'var(--text-2)',
+                fontWeight: r.urgent ? 600 : 400,
+              }}>
+                {r.text}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Action footer */}
+        <div style={{
+          padding: '12px 20px 18px',
+          borderTop: `1px solid ${col.main}22`,
+          display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          {isHigh && (
+            <a href="tel:112" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              padding: '12px', borderRadius: 10,
+              background: '#ff4560', color: '#fff',
+              fontFamily: 'var(--font-disp)', fontSize: 14, fontWeight: 800,
+              textDecoration: 'none', letterSpacing: '0.03em',
+              boxShadow: '0 0 20px rgba(255,69,96,0.5)',
+            }}>
+              📞 Call Emergency (112)
+            </a>
+          )}
+          <button
+            onClick={onDismiss}
+            style={{
+              padding: '11px', borderRadius: 10,
+              background: isHigh ? 'rgba(255,69,96,0.12)' : 'rgba(255,176,32,0.12)',
+              border: `1px solid ${col.main}44`,
+              color: col.main,
+              fontFamily: 'var(--font-disp)', fontSize: 13, fontWeight: 700,
+              letterSpacing: '0.04em',
+              transition: 'background 0.2s',
+            }}
+          >
+            {isHigh ? 'I Understand — Dismiss Alarm' : 'Understood — Dismiss'}
+          </button>
+          {isLow && (
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: 9,
+              color: 'var(--text-3)', textAlign: 'center', letterSpacing: '0.06em',
+            }}>
+              TAP OUTSIDE OR DISMISS TO CLOSE
+            </div>
+          )}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes popIn {
+          from { opacity: 0; transform: translate(-50%, -48%) scale(0.93) }
+          to   { opacity: 1; transform: translate(-50%, -50%) scale(1) }
+        }
+      `}</style>
+    </>
   )
 }
 
@@ -468,7 +611,6 @@ export default function App() {
   const [weeklyLeaksBySev, setWeeklyLeaksBySevState] = useState(() => lsGet('gaswatch_weekly_leaks', []))
   const [weeklyPpm, setWeeklyPpmState]               = useState(() => lsGet('gaswatch_weekly_ppm', []))
 
-  // Setters that also persist to localStorage
   const setWeeklyUsage = (data) => {
     setWeeklyUsageState(data)
     lsSet('gaswatch_weekly_usage', data)
@@ -483,13 +625,19 @@ export default function App() {
     lsSet('gaswatch_weekly_ppm', data)
   }
 
-  const [severity, setSeverity]   = useState('safe')
+  const [severity, setSeverity]     = useState('safe')
   const [currentPpm, setCurrentPpm] = useState(null)
   const [currentRaw, setCurrentRaw] = useState(null)
   const [ppmHistory, setPpmHistory] = useState([])
   const [alarmBanner, setAlarmBanner] = useState(false)
-  const [alerts, setAlerts]         = useState([])
-  const [totalLeaks, setTotalLeaks] = useState(0)
+  const [alerts, setAlerts]           = useState([])
+  const [totalLeaks, setTotalLeaks]   = useState(0)
+
+  // ── Safety popup state ─────────────────────────────────────────────────
+  // popup: null | { severity, ppm }
+  const [safetyPopup, setSafetyPopup] = useState(null)
+  // Track last severity to avoid re-popping on same sustained event
+  const lastPopupSevRef = useRef('safe')
 
   const [cookingMode, setCookingModeRaw] = useState(() => localStorage.getItem('gaswatch_cooking') === 'true')
   const [cookingStart, setCookingStart]  = useState(null)
@@ -497,7 +645,7 @@ export default function App() {
   const setCookingMode = val => {
     setCookingModeRaw(val); cookingRef.current = val
     localStorage.setItem('gaswatch_cooking', val ? 'true' : 'false')
-    if (val) setCookingStart(Date.now())
+    if (val) { setCookingStart(Date.now()); setSafetyPopup(null) }
     else { setCookingStart(null); setAlarmBanner(false); clearInterval(alarmTimer.current) }
   }
 
@@ -533,6 +681,33 @@ export default function App() {
     } catch (_) {}
   }, [])
 
+  const stopAlarm = useCallback(() => {
+    setAlarmBanner(false)
+    clearInterval(alarmTimer.current)
+  }, [])
+
+  // ── Dismiss popup handler — also stops alarm for high severity ─────────
+  const dismissPopup = useCallback(() => {
+    setSafetyPopup(null)
+    stopAlarm()
+    lastPopupSevRef.current = 'safe' // allow re-trigger on next event
+  }, [stopAlarm])
+
+  // ── Rule-based popup trigger ───────────────────────────────────────────
+  const triggerSafetyPopup = useCallback((fSev, fPpm) => {
+    if (cookingRef.current) return                      // suppressed in cooking mode
+    if (fSev === 'safe') {
+      // Clear popup when back to safe
+      setSafetyPopup(null)
+      lastPopupSevRef.current = 'safe'
+      return
+    }
+    // Only re-trigger if severity changed upward or it's a new event after dismissal
+    if (fSev === lastPopupSevRef.current) return        // same sustained severity, don't re-popup
+    lastPopupSevRef.current = fSev
+    setSafetyPopup({ severity: fSev, ppm: fPpm })
+  }, [])
+
   const handleLeakEvent = useCallback((sev, id, ts, rawPpm, rawAdc) => {
     const fPpm = filterPpm(rawPpm)
     const fSev = deriveSeverity(rawPpm)
@@ -540,23 +715,45 @@ export default function App() {
     setCurrentPpm(fPpm)
     if (fPpm != null) setPpmHistory(h => [...h.slice(-59), fPpm])
     if (rawAdc != null) setCurrentRaw(rawAdc)
-    if (cookingRef.current) { setAlarmBanner(false); clearInterval(alarmTimer.current); return }
-    if (fSev !== 'safe') {
-      const a = { id: id || Date.now(), severity: fSev, time: fmtTime(ts || Date.now()), date: fmtDate(ts || Date.now()), msg: fSev === 'high' ? 'CRITICAL gas leakage detected!' : 'Minor gas leakage detected', ppm: fPpm, raw: rawAdc }
-      setAlerts(prev => [a, ...prev.slice(0, 99)])
-      if (fSev === 'high') {
-        setTotalLeaks(t => t + 1); setAlarmBanner(true); playAlarm()
-        clearInterval(alarmTimer.current); alarmTimer.current = setInterval(playAlarm, 2500)
-      }
-    } else { setAlarmBanner(false); clearInterval(alarmTimer.current) }
-  }, [playAlarm])
 
-  // ── Build rolling 7-day chart data from raw records ────────────────────
+    if (cookingRef.current) {
+      setAlarmBanner(false); clearInterval(alarmTimer.current)
+      return
+    }
+
+    if (fSev !== 'safe') {
+      const a = {
+        id: id || Date.now(), severity: fSev,
+        time: fmtTime(ts || Date.now()), date: fmtDate(ts || Date.now()),
+        msg: fSev === 'high' ? 'CRITICAL gas leakage detected!' : 'Minor gas leakage detected',
+        ppm: fPpm, raw: rawAdc,
+      }
+      setAlerts(prev => [a, ...prev.slice(0, 99)])
+
+      if (fSev === 'high') {
+        setTotalLeaks(t => t + 1)
+        setAlarmBanner(true)
+        playAlarm()
+        clearInterval(alarmTimer.current)
+        alarmTimer.current = setInterval(playAlarm, 2500)
+      }
+
+      // Rule-based popup
+      triggerSafetyPopup(fSev, fPpm)
+    } else {
+      setAlarmBanner(false)
+      clearInterval(alarmTimer.current)
+      // Auto-clear popup when back to safe
+      setSafetyPopup(null)
+      lastPopupSevRef.current = 'safe'
+    }
+  }, [playAlarm, triggerSafetyPopup])
+
+  // ── Build rolling 7-day chart data ─────────────────────────────────────
   const buildWeeklyCharts = useCallback((wLvls, wLeaks, pr, ct) => {
     const days = getRolling7Days()
     const todayStr = new Date().toDateString()
 
-    // ── Gas usage per day ─────────────────────────────────────────────
     const usageSlots = days.map(d => ({ ...d, sum: 0, cnt: 0, isToday: d.dateStr === todayStr }))
     if (wLvls?.length > 0) {
       wLvls.forEach(r => {
@@ -566,12 +763,9 @@ export default function App() {
       })
     }
     const usageData = usageSlots.map(s => ({
-      label: s.label,
-      value: s.cnt > 0 ? Math.round(s.sum / s.cnt) : 0,
-      isToday: s.isToday,
+      label: s.label, value: s.cnt > 0 ? Math.round(s.sum / s.cnt) : 0, isToday: s.isToday,
     }))
 
-    // Avg daily use: difference between first and last day that has data
     const daysWithData = usageData.filter(d => d.value > 0)
     let computedAvgDaily = null
     if (daysWithData.length >= 2) {
@@ -579,16 +773,15 @@ export default function App() {
       computedAvgDaily = Math.max(0, (drop / daysWithData.length)).toFixed(1)
     }
 
-    // ── Leaks + PPM per day ───────────────────────────────────────────
     const leakSlots = days.map(d => ({ ...d, high: 0, low: 0, ppmSum: 0, ppmCnt: 0, isToday: d.dateStr === todayStr }))
     let sumP = 0, cntP = 0, maxP = 0, cH = 0, cL = 0
 
     if (wLeaks?.length > 0) {
       wLeaks.forEach(r => {
-        const ds  = new Date(r.created_at).toDateString()
-        const slot = leakSlots.find(s => s.dateStr === ds)
-        const fSev = deriveSeverity(r.ppm_approx)
-        const fPpm = filterPpm(r.ppm_approx)
+        const ds   = new Date(r.created_at).toDateString()
+        const slot  = leakSlots.find(s => s.dateStr === ds)
+        const fSev  = deriveSeverity(r.ppm_approx)
+        const fPpm  = filterPpm(r.ppm_approx)
         if (slot) {
           if (fSev === 'high') slot.high++
           if (fSev === 'low')  slot.low++
@@ -602,22 +795,19 @@ export default function App() {
 
     const leaksData = leakSlots.map(s => ({ label: s.label, high: s.high, low: s.low, isToday: s.isToday }))
     const ppmData   = leakSlots.map(s => ({
-      label: s.label,
-      value: s.ppmCnt > 0 ? Math.round(s.ppmSum / s.ppmCnt) : 0,
-      isToday: s.isToday,
+      label: s.label, value: s.ppmCnt > 0 ? Math.round(s.ppmSum / s.ppmCnt) : 0, isToday: s.isToday,
     }))
 
     const computedAvgPpm  = cntP > 0 ? Math.round(sumP / cntP) : null
     const computedMaxPpm  = maxP > 0 ? Math.round(maxP) : null
 
-    // Persist all computed analytics
     setWeeklyUsage(usageData)
     setWeeklyLeaksBySev(leaksData)
     setWeeklyPpm(ppmData)
-    setAvgPpm7d(computedAvgPpm);   lsSet('gaswatch_avg_ppm', computedAvgPpm)
-    setMaxPpm7d(computedMaxPpm);   lsSet('gaswatch_max_ppm', computedMaxPpm)
-    setHighLeaks7d(cH);            lsSet('gaswatch_high_leaks', cH)
-    setLowLeaks7d(cL);             lsSet('gaswatch_low_leaks', cL)
+    setAvgPpm7d(computedAvgPpm);      lsSet('gaswatch_avg_ppm', computedAvgPpm)
+    setMaxPpm7d(computedMaxPpm);      lsSet('gaswatch_max_ppm', computedMaxPpm)
+    setHighLeaks7d(cH);               lsSet('gaswatch_high_leaks', cH)
+    setLowLeaks7d(cL);                lsSet('gaswatch_low_leaks', cL)
     setAvgDailyUse(computedAvgDaily); lsSet('gaswatch_avg_daily_use', computedAvgDaily)
   }, []) // eslint-disable-line
 
@@ -659,15 +849,35 @@ export default function App() {
           return nw
         })
         const i = demoIdx++ % demoSevs.length
-        const fPpm = filterPpm(demoPpm[i]); const fSev = deriveSeverity(demoPpm[i])
+        const fPpm = filterPpm(demoPpm[i])
+        const fSev = deriveSeverity(demoPpm[i])
         setSeverity(fSev); setCurrentPpm(fPpm)
         if (fPpm != null) setPpmHistory(h => [...h.slice(-59), fPpm])
         setLastSeen(new Date())
+
         if (!cookingRef.current && fSev !== 'safe') {
-          const a = { id: Date.now(), severity: fSev, ppm: fPpm, time: fmtTime(Date.now()), date: fmtDate(Date.now()), msg: fSev === 'high' ? 'CRITICAL gas leakage detected!' : 'Minor gas leakage detected' }
+          const a = {
+            id: Date.now(), severity: fSev, ppm: fPpm,
+            time: fmtTime(Date.now()), date: fmtDate(Date.now()),
+            msg: fSev === 'high' ? 'CRITICAL gas leakage detected!' : 'Minor gas leakage detected',
+          }
           setAlerts(p => [a, ...p.slice(0, 99)])
-          if (fSev === 'high') { setTotalLeaks(t => t + 1); setAlarmBanner(true); playAlarm(); clearInterval(alarmTimer.current); alarmTimer.current = setInterval(playAlarm, 2500) }
-        } else if (fSev === 'safe') { setAlarmBanner(false); clearInterval(alarmTimer.current) }
+
+          if (fSev === 'high') {
+            setTotalLeaks(t => t + 1)
+            setAlarmBanner(true)
+            playAlarm()
+            clearInterval(alarmTimer.current)
+            alarmTimer.current = setInterval(playAlarm, 2500)
+          }
+          // Rule-based popup
+          triggerSafetyPopup(fSev, fPpm)
+        } else if (fSev === 'safe') {
+          setAlarmBanner(false)
+          clearInterval(alarmTimer.current)
+          setSafetyPopup(null)
+          lastPopupSevRef.current = 'safe'
+        }
       }, 3500)
       return () => { clearInterval(iv); clearInterval(alarmTimer.current) }
     }
@@ -677,7 +887,6 @@ export default function App() {
       const pr = cylinderPresetRef.current
       const ct = customTareRef.current
 
-      // ── Latest weight ─────────────────────────────────────────────
       const { data: lvls } = await supabase
         .from('gas_levels')
         .select('weight_grams,created_at')
@@ -692,7 +901,6 @@ export default function App() {
         setLevelHistory(lvls.map(r => weightToPercent(Number(r.weight_grams), pr, ct)).reverse())
       }
 
-      // ── Recent leakages ───────────────────────────────────────────
       const { data: leaks } = await supabase
         .from('gas_leakages')
         .select('id,severity,raw_value,ppm_approx,created_at')
@@ -707,23 +915,16 @@ export default function App() {
         setPpmHistory(leaks.slice(0, 60).map(r => filterPpm(r.ppm_approx) ?? 0).reverse())
         const filtered = leaks.filter(r => deriveSeverity(r.ppm_approx) !== 'safe')
         setAlerts(filtered.map(r => ({
-          id: r.id,
-          severity: deriveSeverity(r.ppm_approx),
-          time: fmtTime(r.created_at),
-          date: fmtDate(r.created_at),
+          id: r.id, severity: deriveSeverity(r.ppm_approx),
+          time: fmtTime(r.created_at), date: fmtDate(r.created_at),
           msg: r.severity === 'high' ? 'CRITICAL gas leakage detected!' : 'Minor gas leakage detected',
-          ppm: filterPpm(r.ppm_approx),
-          raw: r.raw_value
+          ppm: filterPpm(r.ppm_approx), raw: r.raw_value,
         })))
         setTotalLeaks(filtered.length)
         setConnected(true)
       }
 
-      // ── Weekly aggregation — rolling 7-day window ─────────────────
-      // Always refresh weekly charts on init (cache is for instant display,
-      // but we always fetch fresh data to ensure accuracy after reload)
       const sevenAgo = new Date(Date.now() - 7 * 86400000).toISOString()
-
       const [{ data: wLvls }, { data: wLeaks }] = await Promise.all([
         supabase.from('gas_levels').select('weight_grams,created_at').gte('created_at', sevenAgo).order('created_at', { ascending: true }),
         supabase.from('gas_leakages').select('severity,ppm_approx,created_at').gte('created_at', sevenAgo).order('created_at', { ascending: true }),
@@ -746,7 +947,6 @@ export default function App() {
           setConnected(true)
           setLevelHistory(prev => [...prev.slice(-59), weightToPercent(w, pr, ct)])
 
-          // Update today's bar in weeklyUsage in real time
           const todayStr   = new Date().toDateString()
           const todayLabel = new Date().toLocaleDateString([], { weekday: 'short' }).slice(0, 3)
           const newPct     = weightToPercent(w, pr, ct)
@@ -811,7 +1011,7 @@ export default function App() {
       }
       clearInterval(alarmTimer.current)
     }
-  }, [demoMode, handleLeakEvent, playAlarm, buildWeeklyCharts])
+  }, [demoMode, handleLeakEvent, playAlarm, buildWeeklyCharts, triggerSafetyPopup])
 
   // ── Derived state ──────────────────────────────────────────────────────
   const displaySev    = cookingMode ? 'safe' : severity
@@ -838,6 +1038,15 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column', width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
+
+      {/* ── Safety Recommendation Popup (rule-based engine) ─────────────── */}
+      {safetyPopup && !cookingMode && (
+        <SafetyPopup
+          severity={safetyPopup.severity}
+          ppm={safetyPopup.ppm}
+          onDismiss={dismissPopup}
+        />
+      )}
 
       <header style={{
         position: 'sticky', top: 0, zIndex: 200,
@@ -886,7 +1095,8 @@ export default function App() {
         </div>
       )}
 
-      {alarmBanner && !cookingMode && (
+      {/* Sticky alarm banner (only shown separately from popup for non-high alarms or when popup dismissed) */}
+      {alarmBanner && !cookingMode && !safetyPopup && (
         <div className="slide-down" style={{
           position: 'sticky', top: cookingMode ? 112 : 56, zIndex: 190,
           background: 'rgba(255,69,96,0.12)', borderBottom: '1px solid rgba(255,69,96,0.3)',
@@ -904,7 +1114,7 @@ export default function App() {
               </div>
             </div>
           </div>
-          <button onClick={() => { setAlarmBanner(false); clearInterval(alarmTimer.current) }} style={{ padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: '#ff4560', color: '#fff', boxShadow: '0 0 14px rgba(255,69,96,0.4)', flexShrink: 0 }}>
+          <button onClick={stopAlarm} style={{ padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: '#ff4560', color: '#fff', boxShadow: '0 0 14px rgba(255,69,96,0.4)', flexShrink: 0 }}>
             Dismiss
           </button>
         </div>
@@ -1168,8 +1378,6 @@ function AnalyticsTab({ estDays, avgPpm7d, maxPpm7d, highLeaks7d, lowLeaks7d, av
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: '100%', overflowX: 'hidden', minWidth: 0 }}>
-
-      {/* Today indicator */}
       <div style={{ padding: '10px 14px', borderRadius: 'var(--r)', background: 'rgba(77,142,255,0.07)', border: '1px solid rgba(77,142,255,0.2)', display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#4d8eff', boxShadow: '0 0 8px #4d8eff', flexShrink: 0 }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#4d8eff', fontWeight: 600 }}>TODAY — {todayLabel.toUpperCase()}</span>
