@@ -693,6 +693,16 @@ export default function App() {
     lastPopupSevRef.current = 'safe' // allow re-trigger on next event
   }, [stopAlarm])
 
+  // ── Alarm is driven entirely by the popup — no race conditions ──────────
+  useEffect(() => {
+    if (safetyPopup?.severity === 'high') {
+      setAlarmBanner(true)
+      playAlarm()
+      clearInterval(alarmTimer.current)
+      alarmTimer.current = setInterval(playAlarm, 2500)
+    }
+  }, [safetyPopup, playAlarm])
+
   // ── Rule-based popup trigger ───────────────────────────────────────────
   const triggerSafetyPopup = useCallback((fSev, fPpm) => {
     if (cookingRef.current) return                      // suppressed in cooking mode
@@ -732,10 +742,6 @@ export default function App() {
 
       if (fSev === 'high') {
         setTotalLeaks(t => t + 1)
-        setAlarmBanner(true)
-        playAlarm()
-        clearInterval(alarmTimer.current)
-        alarmTimer.current = setInterval(playAlarm, 2500)
       }
 
       // Rule-based popup
@@ -865,10 +871,6 @@ export default function App() {
 
           if (fSev === 'high') {
             setTotalLeaks(t => t + 1)
-            setAlarmBanner(true)
-            playAlarm()
-            clearInterval(alarmTimer.current)
-            alarmTimer.current = setInterval(playAlarm, 2500)
           }
           // Rule-based popup
           triggerSafetyPopup(fSev, fPpm)
