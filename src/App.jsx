@@ -362,8 +362,9 @@ function BarChart({ data, color, showValues = true, yAxisLabel = '' }) {
   const maxRaw = Math.max(...data.map(d => d.value))
   const max = maxRaw > 0 ? maxRaw : 1
   const hasAnyData = maxRaw > 0
-  const barAreaHeight = 110
-  const yAxisWidth = 40
+  const barAreaHeight = 160
+  const yAxisWidth = max >= 1000 ? 52 : 40
+  const fmtTick = v => v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : String(v)
   const yTicks = hasAnyData
     ? [0, Math.round(max * 0.25), Math.round(max * 0.5), Math.round(max * 0.75), max]
     : [0, 25, 50, 75, 100]
@@ -376,23 +377,24 @@ function BarChart({ data, color, showValues = true, yAxisLabel = '' }) {
         </div>
       )}
       <div style={{ display: 'flex', gap: 8 }}>
-        <div style={{ width: yAxisWidth, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: barAreaHeight, paddingRight: 8, borderRight: '1px solid var(--border)', marginRight: 8 }}>
+        <div style={{ width: yAxisWidth, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: barAreaHeight, paddingRight: 8, borderRight: '1px solid var(--border)', marginRight: 8, flexShrink: 0 }}>
           {yTicks.slice().reverse().map((tick, i) => (
-            <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', textAlign: 'right', lineHeight: 1 }}>{tick}</div>
+            <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', textAlign: 'right', lineHeight: 1 }}>{fmtTick(tick)}</div>
           ))}
         </div>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: barAreaHeight, width: '100%', borderBottom: '1px solid var(--border)' }}>
             {data.map((d, i) => {
               const usableHeight = barAreaHeight - 22
               const barH = hasAnyData && d.value > 0 ? Math.max(4, (d.value / max) * usableHeight) : 0
               const isToday = d.isToday
+              const label = d.value >= 1000 ? `${(d.value / 1000).toFixed(1)}k` : String(d.value)
               return (
                 <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', minWidth: 0 }}>
                   <div style={{ width: '100%', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
                     {showValues && d.value > 0 && (
                       <div style={{ position: 'absolute', bottom: barH + 4, left: '50%', transform: 'translateX(-50%)', fontFamily: 'var(--font-mono)', fontSize: 9, color: color, fontWeight: 600, whiteSpace: 'nowrap', background: 'rgba(0,0,0,0.75)', padding: '2px 5px', borderRadius: 4, pointerEvents: 'none', zIndex: 1 }}>
-                        {d.value}
+                        {label}
                       </div>
                     )}
                     <div style={{ width: '85%', height: barH > 0 ? barH : 2, borderRadius: '3px 3px 0 0', background: barH > 0 ? color : 'rgba(255,255,255,0.08)', transition: 'height 0.6s cubic-bezier(.4,0,.2,1)', boxShadow: barH > 0 ? `0 0 8px ${color}44` : 'none', outline: isToday ? `2px solid ${color}` : 'none', outlineOffset: 2 }} />
@@ -419,7 +421,7 @@ function DualBarChart({ data, showValues = true }) {
   const maxRaw = Math.max(...data.map(d => Math.max(d.high, d.low)))
   const max = maxRaw > 0 ? maxRaw : 1
   const hasAnyData = maxRaw > 0
-  const barAreaHeight = 110
+  const barAreaHeight = 160
   const yAxisWidth = 40
   const yTicks = hasAnyData
     ? [0, Math.round(max * 0.25), Math.round(max * 0.5), Math.round(max * 0.75), max]
@@ -628,7 +630,7 @@ export default function App() {
   const [severity, setSeverity]     = useState('safe')
   const [currentPpm, setCurrentPpm] = useState(null)
   const [currentRaw, setCurrentRaw] = useState(null)
-  const [ppmHistory, setPpmHistory] = useState([])
+  const [ppmHistory, setPpmHistory] = useState(() => lsGet('gaswatch_ppm_history', []))
   const [alarmBanner, setAlarmBanner] = useState(false)
   const [alerts, setAlerts]           = useState([])
   const [totalLeaks, setTotalLeaks]   = useState(0)
@@ -723,7 +725,7 @@ export default function App() {
     const fSev = deriveSeverity(rawPpm)
     setSeverity(fSev); setLastSeen(new Date(ts || Date.now()))
     setCurrentPpm(fPpm)
-    if (fPpm != null) setPpmHistory(h => [...h.slice(-59), fPpm])
+    if (fPpm != null) setPpmHistory(h => { const next = [...h.slice(-59), fPpm]; lsSet('gaswatch_ppm_history', next); return next })
     if (rawAdc != null) setCurrentRaw(rawAdc)
 
     if (cookingRef.current) {
@@ -801,7 +803,8 @@ export default function App() {
 
     const leaksData = leakSlots.map(s => ({ label: s.label, high: s.high, low: s.low, isToday: s.isToday }))
     const ppmData   = leakSlots.map(s => ({
-      label: s.label, value: s.ppmCnt > 0 ? Math.round(s.ppmSum / s.ppmCnt) : 0, isToday: s.isToday,
+      label: s.label, value: s.ppmCnt > 0 ? Math.round(s.ppmSum / s.ppmCnt) : 0,
+      ppmSum: s.ppmSum, ppmCnt: s.ppmCnt, isToday: s.isToday,
     }))
 
     const computedAvgPpm  = cntP > 0 ? Math.round(sumP / cntP) : null
@@ -914,7 +917,8 @@ export default function App() {
         setSeverity(deriveSeverity(l.ppm_approx))
         setCurrentPpm(filterPpm(l.ppm_approx))
         if (l.raw_value != null) setCurrentRaw(l.raw_value)
-        setPpmHistory(leaks.slice(0, 60).map(r => filterPpm(r.ppm_approx) ?? 0).reverse())
+        const initHistory = leaks.slice(0, 60).map(r => filterPpm(r.ppm_approx) ?? 0).reverse()
+        setPpmHistory(initHistory); lsSet('gaswatch_ppm_history', initHistory)
         const filtered = leaks.filter(r => deriveSeverity(r.ppm_approx) !== 'safe')
         setAlerts(filtered.map(r => ({
           id: r.id, severity: deriveSeverity(r.ppm_approx),
@@ -989,17 +993,29 @@ export default function App() {
               lsSet('gaswatch_weekly_leaks', updated)
               return updated
             })
+            if (fSev === 'high') setHighLeaks7d(prev => { const next = (prev || 0) + 1; lsSet('gaswatch_high_leaks', next); return next })
+            if (fSev === 'low')  setLowLeaks7d(prev  => { const next = (prev || 0) + 1; lsSet('gaswatch_low_leaks',  next); return next })
           }
 
           if (fPpm != null) {
             setWeeklyPpmState(prev => {
               const updated = prev.map(entry => {
                 if (entry.label !== todayLabel) return entry
-                const newVal = entry.value > 0 ? Math.round((entry.value + fPpm) / 2) : Math.round(fPpm)
-                return { ...entry, value: newVal, isToday: true }
+                const newSum = (entry.ppmSum || 0) + fPpm
+                const newCnt = (entry.ppmCnt || 0) + 1
+                return { ...entry, ppmSum: newSum, ppmCnt: newCnt, value: Math.round(newSum / newCnt), isToday: true }
               })
               lsSet('gaswatch_weekly_ppm', updated)
               return updated
+            })
+            // Update running avg and peak
+            setAvgPpm7d(prev => {
+              const next = prev != null ? Math.round((prev + fPpm) / 2) : Math.round(fPpm)
+              lsSet('gaswatch_avg_ppm', next); return next
+            })
+            setMaxPpm7d(prev => {
+              if (prev == null || fPpm > prev) { lsSet('gaswatch_max_ppm', fPpm); return fPpm }
+              return prev
             })
           }
         })
@@ -1169,7 +1185,7 @@ export default function App() {
               highLeaks7d={highLeaks7d} lowLeaks7d={lowLeaks7d} avgDailyUse={avgDailyUse}
               weeklyUsage={weeklyUsage} weeklyLeaksBySev={weeklyLeaksBySev} weeklyPpm={weeklyPpm}
               gasLevel={gasLevel} cylinderPreset={cylinderPreset} levelHistory={levelHistory}
-              rawWeightG={rawWeightG}
+              rawWeightG={rawWeightG} ppmHistory={ppmHistory}
             />
           </div>
         )}
@@ -1363,9 +1379,85 @@ function AlertsTab({ nonSafeAlerts, setAlerts }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// SCROLLABLE LINE CHART — historical PPM with pan support
+// ══════════════════════════════════════════════════════════════════════════
+function ScrollableLineChart({ data, color }) {
+  if (!data || data.length < 2) return null
+  const h = 140, pad = { top: 16, bottom: 28, left: 48, right: 16 }
+  const pointW = Math.max(18, Math.min(40, 300 / data.length))
+  const totalW = Math.max(300, data.length * pointW)
+  const min = Math.min(...data), max = Math.max(...data)
+  const range = max - min || 1
+  const chartH = h - pad.top - pad.bottom
+  const chartW = totalW - pad.left - pad.right
+  const fmtVal = v => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)
+  const yTicks = [min, min + range * 0.25, min + range * 0.5, min + range * 0.75, max].map(Math.round)
+  const xOf = i => pad.left + (i / (data.length - 1)) * chartW
+  const yOf = v => pad.top + (1 - (v - min) / range) * chartH
+  const pts = data.map((v, i) => [xOf(i), yOf(v)])
+  const polyPts = pts.map(p => p.join(',')).join(' ')
+  const areaPath = `M${pad.left},${h - pad.bottom} L${pts.map(p => p.join(',')).join(' L')} L${xOf(data.length - 1)},${h - pad.bottom} Z`
+  const gradId = `scl-${color.replace('#', '')}`
+
+  return (
+    <div style={{ overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch', marginLeft: -4, marginRight: -4, paddingBottom: 4 }}>
+      <svg width={totalW} height={h} style={{ display: 'block', minWidth: totalW }}>
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {/* y-axis ticks + grid lines */}
+        {yTicks.map((tick, i) => {
+          const y = yOf(tick)
+          return (
+            <g key={i}>
+              <line x1={pad.left} x2={totalW - pad.right} y1={y} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+              <text x={pad.left - 6} y={y + 3} textAnchor="end" fontSize="9" fontFamily="monospace" fill="rgba(255,255,255,0.35)">{fmtVal(tick)}</text>
+            </g>
+          )
+        })}
+        {/* Area fill */}
+        <path d={areaPath} fill={`url(#${gradId})`} />
+        {/* Line */}
+        <polyline points={polyPts} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+        {/* Dots — only render if not too dense */}
+        {data.length <= 40 && pts.map(([x, y], i) => (
+          <circle key={i} cx={x} cy={y} r="2.5" fill={color} opacity="0.85" />
+        ))}
+        {/* x-axis baseline */}
+        <line x1={pad.left} x2={totalW - pad.right} y1={h - pad.bottom} y2={h - pad.bottom} stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+        {/* x-axis index labels — every Nth point to avoid crowding */}
+        {data.map((_, i) => {
+          const step = Math.ceil(data.length / 10)
+          if (i % step !== 0 && i !== data.length - 1) return null
+          return (
+            <text key={i} x={xOf(i)} y={h - pad.bottom + 14} textAnchor="middle" fontSize="9" fontFamily="monospace" fill="rgba(255,255,255,0.3)">
+              {i + 1}
+            </text>
+          )
+        })}
+        {/* Peak marker */}
+        {(() => {
+          const peakIdx = data.indexOf(max)
+          const [px, py] = pts[peakIdx]
+          return (
+            <g>
+              <circle cx={px} cy={py} r="4" fill="none" stroke={color} strokeWidth="1.5" opacity="0.9" />
+              <text x={px} y={py - 8} textAnchor="middle" fontSize="9" fontFamily="monospace" fill={color} fontWeight="bold">{fmtVal(max)}</text>
+            </g>
+          )
+        })()}
+      </svg>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // ANALYTICS TAB
 // ══════════════════════════════════════════════════════════════════════════
-function AnalyticsTab({ estDays, avgPpm7d, maxPpm7d, highLeaks7d, lowLeaks7d, avgDailyUse, weeklyUsage, weeklyLeaksBySev, weeklyPpm, gasLevel, cylinderPreset, levelHistory, rawWeightG }) {
+function AnalyticsTab({ estDays, avgPpm7d, maxPpm7d, highLeaks7d, lowLeaks7d, avgDailyUse, weeklyUsage, weeklyLeaksBySev, weeklyPpm, gasLevel, cylinderPreset, levelHistory, rawWeightG, ppmHistory }) {
   const lCol = levelColor(gasLevel)
   const todayLabel = new Date().toLocaleDateString([], { weekday: 'long' })
 
@@ -1409,7 +1501,7 @@ function AnalyticsTab({ estDays, avgPpm7d, maxPpm7d, highLeaks7d, lowLeaks7d, av
       </Card>
 
       <Card>
-        <SectionTitle>Weekly Average PPM (≥300 ppm only)</SectionTitle>
+        <SectionTitle>Weekly Average PPM (≥{LPG_PPM_LOW} ppm only)</SectionTitle>
         <BarChart data={weeklyPpm} color="#ffb020" showValues={true} />
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', flexWrap: 'wrap', gap: 8 }}>
           <span>7d avg: {avgPpm7d != null ? `${avgPpm7d} ppm` : '0 ppm'}</span>
@@ -1426,6 +1518,17 @@ function AnalyticsTab({ estDays, avgPpm7d, maxPpm7d, highLeaks7d, lowLeaks7d, av
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', flexWrap: 'wrap', gap: 8 }}>
             <span>oldest</span>
             <span>now: {Math.round(gasLevel)}%{rawWeightG != null ? ` (${(rawWeightG / 1000).toFixed(2)} kg)` : ''}</span>
+          </div>
+        </Card>
+      )}
+
+      {ppmHistory && ppmHistory.filter(v => v > 0).length > 1 && (
+        <Card>
+          <SectionTitle>PPM History · All Recorded Readings</SectionTitle>
+          <ScrollableLineChart data={ppmHistory.filter(v => v > 0)} color="#ffb020" />
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', flexWrap: 'wrap', gap: 8 }}>
+            <span>← scroll to see older readings</span>
+            <span>latest: {ppmHistory.filter(v => v > 0).slice(-1)[0]} ppm</span>
           </div>
         </Card>
       )}
